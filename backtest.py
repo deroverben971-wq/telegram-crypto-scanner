@@ -237,19 +237,19 @@ def main():
     gross_wins = [t["net_return_pct"] for t in results if t["net_return_pct"] > 0]
     gross_losses = [t["net_return_pct"] for t in results if t["net_return_pct"] < 0]
     profit_factor = sum(gross_wins)/abs(sum(gross_losses)) if gross_losses else (float("inf") if gross_wins else 0)
-    equity, peak, max_dd = 1.0, 1.0, 0.0
-    for t in sorted(results,key=lambda x:x["exit_time"]):
-        equity *= 1 + t["net_return_pct"]/100
-        peak = max(peak,equity)
-        max_dd = max(max_dd,(peak-equity)/peak if peak else 0)
+    portfolio = simulate_portfolio(results, starting_equity=1000.0, risk_fraction=0.005, max_positions=3)
     print("\n=== FIVE-YEAR APPROXIMATE BACKTEST ===")
     print(f"Data window: {datetime.fromtimestamp(start/1000,timezone.utc).date()} to {datetime.now(timezone.utc).date()}")
     print(f"Pairs with data: {len(all_rows)}; failed downloads: {len(errors)}")
     print(f"Completed simulated trades: {n}")
     print(f"Win rate: {wins/n*100:.2f}%" if n else "Win rate: n/a (no trades)")
-    print(f"Net compounded return across sequential per-symbol trades: {(equity-1)*100:.2f}%")
+    print("Portfolio starting equity: 1000.00 USDT; risk budget: 0.5% equity per trade; maximum concurrent positions: 3")
+    print("Portfolio ending equity: {:.2f} USDT".format(portfolio["ending_equity"]))
+    print("Portfolio net return: {:.2f}%".format(portfolio["net_return_pct"]))
+    print("Portfolio max drawdown: {:.2f}%".format(portfolio["max_drawdown_pct"]))
+    print("Portfolio trades taken / skipped at position cap: {} / {}".format(portfolio["trades_taken"], portfolio["trades_skipped"]))
     print(f"Profit factor (net trade returns): {profit_factor:.3f}")
-    print(f"Max drawdown of pooled trade sequence: {max_dd*100:.2f}%")
+    print("Note: trade-level profit factor is not a portfolio-level risk-adjusted metric.")
     print(f"Average net trade: {sum(t['net_return_pct'] for t in results)/n:.3f}%" if n else "Average net trade: n/a")
     print(f"CSV saved to: {OUT}")
     print("\nIMPORTANT: current top-volume universe creates survivorship bias; order-book filters, historic delistings, token news, and true fill/slippage are not reconstructed. Results are exploratory, not proof of future profitability.")
