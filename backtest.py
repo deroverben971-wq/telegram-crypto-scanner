@@ -75,7 +75,7 @@ def aggregate(rows, hours):
         key = row["time"] // (hours * 3600000)
         if bucket is not None and key != bucket:
             if len(group) == hours:
-                out.append({"time": group[-1]["time"], "open": group[0]["open"],
+                out.append({"time": group[-1]["time"] + 3600000, "open": group[0]["open"],
                             "high": max(x["high"] for x in group), "low": min(x["low"] for x in group),
                             "close": group[-1]["close"], "volume": sum(x["volume"] for x in group)})
             group = []
