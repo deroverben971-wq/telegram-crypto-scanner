@@ -82,7 +82,7 @@ def aggregate(rows, hours):
         bucket = key
         group.append(row)
     if len(group) == hours:
-        out.append({"time": group[-1]["time"], "open": group[0]["open"],
+        out.append({"time": group[-1]["time"] + 3600000, "open": group[0]["open"],
                     "high": max(x["high"] for x in group), "low": min(x["low"] for x in group),
                     "close": group[-1]["close"], "volume": sum(x["volume"] for x in group)})
     return out
@@ -150,9 +150,50 @@ def backtest_symbol(symbol, rows, btc_rows):
                        "exit_time":datetime.fromtimestamp(rows[exit_i]["time"]/1000,timezone.utc).isoformat(),
                        "entry":round(entry,10), "exit":round(exit_price,10), "reason":reason,
                        "gross_return_pct":round(gross*100,4), "net_return_pct":round(net*100,4),
-                       "win":int(net > 0), "bars_held":exit_i-entry_i})
+                       "win":int(net > 0), "bars_held":exit_i-entry_i, "risk_pct":round(risk/entry*100,6)})
         i = exit_i + 1  # one position at a time per symbol
     return trades
+
+
+def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_positions=3):
+    """Approximate portfolio with capped concurrent positions and fixed fractional risk."""
+    events = []
+    for t in trades:
+        try:
+            entry = datetime.fromisoformat(t["entry_time"]).timestamp()
+            exit_ = datetime.fromisoformat(t["exit_time"]).timestamp()
+            risk_pct = float(t["risk_pct"]) / 100.0
+            net_pct = float(t["net_return_pct"]) / 100.0
+            if exit_ < entry or risk_pct <= 0 or not math.isfinite(net_pct):
+                continue
+            events.append((entry, exit_, risk_pct, net_pct))
+        except (KeyError, ValueError, TypeError):
+            continue
+    events.sort(key=lambda x: (x[0], x[1]))
+    equity, peak, max_dd = float(starting_equity), float(starting_equity), 0.0
+    active, taken, skipped = [], 0, 0
+    for entry, exit_, risk_pct, net_pct in events:
+        keep = []
+        for pos in active:
+            if pos["exit_time"] <= entry:
+                equity += pos["risk_cash"] * pos["net_pct"] / pos["risk_pct"]
+                peak = max(peak, equity)
+                max_dd = max(max_dd, (peak-equity)/peak if peak else 0.0)
+            else:
+                keep.append(pos)
+        active = keep
+        if len(active) >= max_positions:
+            skipped += 1
+            continue
+        active.append({"exit_time": exit_, "risk_cash": equity*risk_fraction,
+                       "risk_pct": risk_pct, "net_pct": net_pct})
+        taken += 1
+    for pos in sorted(active, key=lambda x: x["exit_time"]):
+        equity += pos["risk_cash"] * pos["net_pct"] / pos["risk_pct"]
+        peak = max(peak, equity)
+        max_dd = max(max_dd, (peak-equity)/peak if peak else 0.0)
+    return {"ending_equity": equity, "net_return_pct": (equity/starting_equity-1)*100,
+            "max_drawdown_pct": max_dd*100, "trades_taken": taken, "trades_skipped": skipped}
 
 def main():
     start = int((datetime.now(timezone.utc) - timedelta(days=365.25*YEARS)).timestamp()*1000)
@@ -188,7 +229,7 @@ def main():
     for sym, rows in all_rows.items():
         if sym == "BTCUSDT": continue
         results.extend(backtest_symbol(sym,rows,btc))
-    fields = ["symbol","entry_time","exit_time","entry","exit","reason","gross_return_pct","net_return_pct","win","bars_held"]
+    fields = ["symbol","entry_time","exit_time","entry","exit","reason","gross_return_pct","net_return_pct","win","bars_held","risk_pct"]
     with OUT.open("w",newline="",encoding="utf-8") as f:
         w = csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(results)
     n = len(results)
