@@ -22,8 +22,11 @@ class AggregateTests(unittest.TestCase):
 
     def test_aggregation_rejects_missing_hour_inside_bucket(self):
         rows = self.make_rows(8)
-        rows.pop(2)
-        self.assertEqual(backtest.aggregate(rows, 4), [])
+        rows.pop(2)  # first 4-hour bucket has a gap; second bucket is intact
+        result = backtest.aggregate(rows, 4)
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["time"], 8 * 3_600_000)
+        self.assertEqual(result[0]["volume"], 40.0)
 
     def test_daily_aggregation_requires_24_hours(self):
         self.assertEqual(backtest.aggregate(self.make_rows(23), 24), [])
