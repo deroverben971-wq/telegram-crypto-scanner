@@ -147,7 +147,7 @@ def backtest_symbol(symbol, rows, btc_rows):
         gross = exit_price / entry - 1
         net = gross - 2 * FEE_RATE
         trades.append({"symbol":symbol, "entry_time":datetime.fromtimestamp(rows[entry_i]["time"]/1000,timezone.utc).isoformat(),
-                       "exit_time":datetime.fromtimestamp(rows[exit_i]["time"]/1000,timezone.utc).isoformat(),
+                       "exit_time":datetime.fromtimestamp((rows[exit_i]["time"]+3600000)/1000,timezone.utc).isoformat(),
                        "entry":round(entry,10), "exit":round(exit_price,10), "reason":reason,
                        "gross_return_pct":round(gross*100,4), "net_return_pct":round(net*100,4),
                        "win":int(net > 0), "bars_held":exit_i-entry_i, "risk_pct":round(risk/entry*100,6)})
@@ -156,8 +156,13 @@ def backtest_symbol(symbol, rows, btc_rows):
 
 
 def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_positions=3):
-    """Approximate portfolio with capped concurrent positions and fixed fractional risk."""
-    events = []
+    """Event-driven approximation with fixed fractional risk and a concurrency cap.
+
+    Realized P&L is applied in exit-time order. Position sizing is based on the
+    stop-distance risk as a fraction of notional. This is not a full exchange
+    simulator: capital constraints and correlated exposure remain simplified.
+    """
+    entries = []
     for t in trades:
         try:
             entry = datetime.fromisoformat(t["entry_time"]).timestamp()
@@ -166,34 +171,40 @@ def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_
             net_pct = float(t["net_return_pct"]) / 100.0
             if exit_ < entry or risk_pct <= 0 or not math.isfinite(net_pct):
                 continue
-            events.append((entry, exit_, risk_pct, net_pct))
+            entries.append({"entry_time": entry, "exit_time": exit_,
+                            "risk_pct": risk_pct, "net_pct": net_pct})
         except (KeyError, ValueError, TypeError):
             continue
-    events.sort(key=lambda x: (x[0], x[1]))
-    equity, peak, max_dd = float(starting_equity), float(starting_equity), 0.0
-    active, taken, skipped = [], 0, 0
-    for entry, exit_, risk_pct, net_pct in events:
-        keep = []
+    entries.sort(key=lambda x: (x["entry_time"], x["exit_time"]))
+    equity = float(starting_equity)
+    peak = equity
+    max_dd = 0.0
+    active = []
+    taken = skipped = 0
+    for trade in entries:
+        still_active = []
+        closed = []
         for pos in active:
-            if pos["exit_time"] <= entry:
-                equity += pos["risk_cash"] * pos["net_pct"] / pos["risk_pct"]
-                peak = max(peak, equity)
-                max_dd = max(max_dd, (peak-equity)/peak if peak else 0.0)
+            if pos["exit_time"] <= trade["entry_time"]:
+                closed.append(pos)
             else:
-                keep.append(pos)
-        active = keep
+                still_active.append(pos)
+        active = still_active
+        for pos in sorted(closed, key=lambda x: x["exit_time"]):
+            equity += pos["risk_cash"] * pos["net_pct"] / pos["risk_pct"]
+            peak = max(peak, equity)
+            max_dd = max(max_dd, (peak - equity) / peak if peak else 0.0)
         if len(active) >= max_positions:
             skipped += 1
             continue
-        active.append({"exit_time": exit_, "risk_cash": equity*risk_fraction,
-                       "risk_pct": risk_pct, "net_pct": net_pct})
+        active.append({**trade, "risk_cash": equity * risk_fraction})
         taken += 1
     for pos in sorted(active, key=lambda x: x["exit_time"]):
         equity += pos["risk_cash"] * pos["net_pct"] / pos["risk_pct"]
         peak = max(peak, equity)
-        max_dd = max(max_dd, (peak-equity)/peak if peak else 0.0)
-    return {"ending_equity": equity, "net_return_pct": (equity/starting_equity-1)*100,
-            "max_drawdown_pct": max_dd*100, "trades_taken": taken, "trades_skipped": skipped}
+        max_dd = max(max_dd, (peak - equity) / peak if peak else 0.0)
+    return {"ending_equity": equity, "net_return_pct": (equity / starting_equity - 1) * 100,
+            "max_drawdown_pct": max_dd * 100, "trades_taken": taken, "trades_skipped": skipped}
 
 def main():
     start = int((datetime.now(timezone.utc) - timedelta(days=365.25*YEARS)).timestamp()*1000)
