@@ -74,14 +74,14 @@ def aggregate(rows, hours):
     for row in rows:
         key = row["time"] // (hours * 3600000)
         if bucket is not None and key != bucket:
-            if len(group) == hours:
+            if len(group) == hours and group[-1]["time"] - group[0]["time"] == (hours - 1) * 3600000:
                 out.append({"time": group[-1]["time"] + 3600000, "open": group[0]["open"],
                             "high": max(x["high"] for x in group), "low": min(x["low"] for x in group),
                             "close": group[-1]["close"], "volume": sum(x["volume"] for x in group)})
             group = []
         bucket = key
         group.append(row)
-    if len(group) == hours:
+    if len(group) == hours and group[-1]["time"] - group[0]["time"] == (hours - 1) * 3600000:
         out.append({"time": group[-1]["time"] + 3600000, "open": group[0]["open"],
                     "high": max(x["high"] for x in group), "low": min(x["low"] for x in group),
                     "close": group[-1]["close"], "volume": sum(x["volume"] for x in group)})
