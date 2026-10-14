@@ -62,28 +62,42 @@ def scan():
     except (OSError,ValueError):state={"alerts":{}}
     if not isinstance(state,dict) or not isinstance(state.get("alerts"),dict):state={"alerts":{}}
     now=time.time(); count=0
+    stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0}
     for q,s,ch,p in u:
-        if s=="BTCUSDT" or now-float(state["alerts"].get(s,0) or 0)<21600:continue
+        if s=="BTCUSDT": continue
+        stats["considered"]+=1
+        if now-float(state["alerts"].get(s,0) or 0)<21600:
+            stats["cooldown"]+=1; continue
         try:
             h1=candles(s,"1h"); h4=candles(s,"4h"); d1=candles(s,"1d")
-            if min(len(h1),len(h4),len(d1))<55:continue
+            if min(len(h1),len(h4),len(d1))<55:
+                stats["insufficient_history"]+=1; continue
             a=[x["close"] for x in h1]; b=[x["close"] for x in h4]; d=[x["close"] for x in d1]
-            if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):continue
+            if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):
+                stats["trend"]+=1; continue
             prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0; rs=ch-btcch; drift=(p/a[-1]-1)*100
-            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or abs(drift)>.75:continue
+            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or abs(drift)>.75:
+                stats["momentum_breakout_volume_rs"]+=1; continue
             ob=get("/api/v3/depth",{"symbol":s,"limit":100}); bids=[(float(x[0]),float(x[1])) for x in ob.get("bids",[]) if len(x)>=2]; asks=[(float(x[0]),float(x[1])) for x in ob.get("asks",[]) if len(x)>=2]
-            if not bids or not asks:continue
+            if not bids or not asks:
+                stats["orderbook_spread_depth"]+=1; continue
             bid=max(x[0] for x in bids); ask=min(x[0] for x in asks); mid=(bid+ask)/2
-            if mid<=0 or ask<=bid or (ask-bid)/mid*100>.15:continue
+            if mid<=0 or ask<=bid or (ask-bid)/mid*100>.15:
+                stats["orderbook_spread_depth"]+=1; continue
             bd=sum(x*y for x,y in bids if x>=mid*.995); ad=sum(x*y for x,y in asks if x<=mid*1.005)
-            if min(bd,ad)<15000:continue
+            if min(bd,ad)<15000:
+                stats["orderbook_spread_depth"]+=1; continue
             stop=min(x["low"] for x in h1[-6:-1]); risk=p-stop
-            if stop<=0 or not .005<=risk/p<=.03:continue
+            if stop<=0 or not .005<=risk/p<=.03:
+                stats["stop_risk"]+=1; continue
             target=p+2*risk
             msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nScan price: {p:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {(ask-bid)/mid*100:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
-            send(msg);state["alerts"][s]=now;tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE);count+=1
+            send(msg);state["alerts"][s]=now;tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE);count+=1;stats["qualified"]+=1
             if count>=3:break
-        except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:print(f"Skip {s}: {type(e).__name__}")
+        except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:
+            stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
+    print("\\nScan diagnostics:")
+    for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
     print(f"Scan complete; alerts sent: {count}" if count else "NO TRADE: no candidate passed every filter.")
 if __name__=="__main__":
     if len(sys.argv)>1 and sys.argv[1]=="--test-telegram":send("Telegram scanner connectivity test only; no signal generated.");print("Telegram test sent.")
