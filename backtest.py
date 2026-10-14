@@ -159,7 +159,7 @@ def main():
     tickers = api("/api/v3/ticker/24hr")
     info = api("/api/v3/exchangeInfo")
     valid = {x["symbol"] for x in info.get("symbols",[]) if x.get("status")=="TRADING" and x.get("quoteAsset")=="USDT" and x.get("isSpotTradingAllowed",True)}
-    excluded = {"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","EUR","TRY","BRL","USTC"}
+    excluded = {"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","USD1","RLUSD","EUR","TRY","BRL","USTC"}
     universe = []
     for t in tickers:
         sym = t.get("symbol","")
