@@ -20,6 +20,11 @@ class AggregateTests(unittest.TestCase):
         # The aggregate is timestamped when its final hourly candle has closed.
         self.assertEqual(result[0]["time"], 4 * 3_600_000)
 
+    def test_aggregation_rejects_missing_hour_inside_bucket(self):
+        rows = self.make_rows(8)
+        rows.pop(2)
+        self.assertEqual(backtest.aggregate(rows, 4), [])
+
     def test_daily_aggregation_requires_24_hours(self):
         self.assertEqual(backtest.aggregate(self.make_rows(23), 24), [])
         result = backtest.aggregate(self.make_rows(24), 24)
