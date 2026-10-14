@@ -96,7 +96,7 @@ def scan():
             if count>=3:break
         except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
-    print("\\nScan diagnostics:")
+    print("\nScan diagnostics:")
     for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
     print(f"Scan complete; alerts sent: {count}" if count else "NO TRADE: no candidate passed every filter.")
 if __name__=="__main__":
