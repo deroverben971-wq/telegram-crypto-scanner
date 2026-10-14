@@ -1,6 +1,11 @@
 name: Five-year historical backtest
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - "backtest.py"
+      - "tests/test_backtest.py"
+      - ".github/workflows/backtest.yml"
 permissions:
   contents: read
 jobs:
