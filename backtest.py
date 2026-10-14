@@ -139,8 +139,10 @@ def backtest_symbol(symbol, rows, btc_rows):
         exit_i, exit_price, reason = min(len(rows)-1, entry_i+MAX_HOLD_HOURS), None, "time"
         for j in range(entry_i, min(len(rows), entry_i+MAX_HOLD_HOURS+1)):
             # Conservative rule: if stop and target are both touched in one candle, assume stop first.
+            # A gap below the stop fills at the candle open, not magically at the stop price.
             if rows[j]["low"] <= stop:
-                exit_i, exit_price, reason = j, stop * (1 - SLIPPAGE_RATE), "stop"
+                stop_reference = min(stop, rows[j]["open"])
+                exit_i, exit_price, reason = j, stop_reference * (1 - SLIPPAGE_RATE), "stop"
                 break
             if rows[j]["high"] >= target:
                 exit_i, exit_price, reason = j, target * (1 - SLIPPAGE_RATE), "target"
