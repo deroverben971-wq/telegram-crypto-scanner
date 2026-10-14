@@ -1,0 +1,31 @@
+name: Unit tests
+on:
+  push:
+    paths:
+      - "scanner.py"
+      - "backtest.py"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/tests.yml"
+  pull_request:
+    paths:
+      - "scanner.py"
+      - "backtest.py"
+      - "tests/**"
+      - "requirements.txt"
+      - ".github/workflows/tests.yml"
+permissions:
+  contents: read
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Run unit tests
+        run: python -m unittest discover -s tests -v
