@@ -123,11 +123,19 @@ def backtest_symbol(symbol, rows, btc_rows):
         breakout = (r["close"] / max(x["high"] for x in prior) - 1) * 100
         avg_vol = sum(x["volume"] for x in prior) / len(prior)
         vol_ratio = r["volume"] / avg_vol if avg_vol else 0
-        btc_now, btc_prev = btc_by_time.get(r["time"]), btc_by_time.get(r["time"] - 24*3600000)
+        # Require contiguous hourly data for the lookback windows. Do not silently
+        # treat 24 array rows as 24 hours when an exchange candle is missing.
+        hourly_times = [x["time"] for x in hourly]
+        if any(hourly_times[k] - hourly_times[k-1] != 3600000 for k in range(1, len(hourly_times))):
+            i += 1; continue
+        btc_now = btc_by_time.get(r["time"])
+        btc_prev = btc_by_time.get(r["time"] - 24*3600000)
+        asset_prev = next((x["close"] for x in rows[max(0, i-30):i]
+                           if x["time"] == r["time"] - 24*3600000), None)
         rs = 0
-        if btc_now and btc_prev and btc_prev > 0:
-            rs = ((r["close"] / rows[i-24]["close"] - 1) -
-                  (btc_now / btc_prev - 1)) * 100 if i >= 24 and rows[i-24]["close"] > 0 else 0
+        if btc_now is not None and btc_prev is not None and btc_prev > 0 and asset_prev is not None and asset_prev > 0:
+            rs = ((r["close"] / asset_prev - 1) -
+                  (btc_now / btc_prev - 1)) * 100
         trend = (scanner.ema(c1,20) > scanner.ema(c1,50) and r["close"] > scanner.ema(c1,20)
                  and scanner.ema(c4,20) > scanner.ema(c4,50) and c4[-1] > scanner.ema(c4,20)
                  and scanner.ema(cd,20) > scanner.ema(cd,50) and cd[-1] > scanner.ema(cd,20))
@@ -291,6 +299,16 @@ def main():
     period_summary(train, "Development 60%")
     period_summary(valid_test, "Validation 20%")
     period_summary(holdout, "Final holdout 20%")
+    holdout_positive = sum(float(t["net_return_pct"]) for t in holdout if float(t["net_return_pct"]) > 0)
+    holdout_negative = -sum(float(t["net_return_pct"]) for t in holdout if float(t["net_return_pct"]) < 0)
+    holdout_pf = holdout_positive / holdout_negative if holdout_negative else (float("inf") if holdout_positive else 0.0)
+    print("\n=== EVIDENCE GATE ===")
+    if len(holdout) < 30:
+        print(f"NOT VALIDATED: final holdout has only {len(holdout)} trades; too little evidence.")
+    elif holdout_pf <= 1.0 or sum(float(t["net_return_pct"]) for t in holdout) <= 0:
+        print(f"NOT VALIDATED: holdout profit factor={holdout_pf:.3f}; holdout net trade returns are not positive.")
+    else:
+        print(f"Preliminary pass only: holdout profit factor={holdout_pf:.3f}; this is not proof of future profitability.")
     print("\n=== FEE SENSITIVITY (per-side fee; same simulated entries/exits) ===")
     for fee in (0.001, 0.0015, 0.002):
         adjusted = [dict(t, net_return_pct=round(float(t["gross_return_pct"])-2*fee*100,4)) for t in results]
