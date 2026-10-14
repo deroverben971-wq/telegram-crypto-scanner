@@ -30,6 +30,13 @@ class AggregateTests(unittest.TestCase):
     def test_empty_input(self):
         self.assertEqual(backtest.aggregate([], 4), [])
 
+    def test_higher_timeframe_bar_must_be_closed_by_signal_time(self):
+        closed_at = [4 * 3_600_000, 8 * 3_600_000]
+        self.assertEqual(backtest.latest_closed_bar_index(closed_at, 3 * 3_600_000), -1)
+        self.assertEqual(backtest.latest_closed_bar_index(closed_at, 4 * 3_600_000), 0)
+        self.assertEqual(backtest.latest_closed_bar_index(closed_at, 7 * 3_600_000), 0)
+        self.assertEqual(backtest.latest_closed_bar_index(closed_at, 8 * 3_600_000), 1)
+
 
 class PortfolioTests(unittest.TestCase):
     def trade(self, entry, exit_, ret, risk=1.0):
