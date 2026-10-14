@@ -96,9 +96,12 @@ def backtest_symbol(symbol, rows, btc_rows):
     trades, i = [], 120
     while i < len(rows) - 2:
         r = rows[i]
-        # Avoid lookahead: higher timeframe bars must have closed at/before signal time.
-        h4i = bisect.bisect_right(h4_times, r["time"]) - 1
-        d1i = bisect.bisect_right(d1_times, r["time"]) - 1
+        # Hourly timestamps are candle OPEN times. The signal uses the completed
+        # hourly candle, so its information is available at open_time + 1 hour.
+        # Only higher-timeframe bars closed by that instant may be used.
+        signal_close_time = r["time"] + 3600000
+        h4i = bisect.bisect_right(h4_times, signal_close_time) - 1
+        d1i = bisect.bisect_right(d1_times, signal_close_time) - 1
         if h4i < 50 or d1i < 50:
             i += 1; continue
         hourly = rows[max(0, i-79):i+1]
