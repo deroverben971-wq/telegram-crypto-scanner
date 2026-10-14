@@ -206,6 +206,15 @@ def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_
     return {"ending_equity": equity, "net_return_pct": (equity / starting_equity - 1) * 100,
             "max_drawdown_pct": max_dd * 100, "trades_taken": taken, "trades_skipped": skipped}
 
+def period_summary(trades, label):
+    n = len(trades)
+    wins = sum(float(t["net_return_pct"]) > 0 for t in trades)
+    pos = sum(float(t["net_return_pct"]) for t in trades if float(t["net_return_pct"]) > 0)
+    neg = -sum(float(t["net_return_pct"]) for t in trades if float(t["net_return_pct"]) < 0)
+    pf = pos / neg if neg else (float("inf") if pos else 0.0)
+    avg = sum(float(t["net_return_pct"]) for t in trades) / n if n else 0.0
+    print(f"{label}: trades={n}, win_rate={(wins/n*100 if n else 0):.2f}%, trade_PF={pf:.3f}, avg_net_trade={avg:.3f}%")
+
 def main():
     start = int((datetime.now(timezone.utc) - timedelta(days=365.25*YEARS)).timestamp()*1000)
     tickers = api("/api/v3/ticker/24hr")
@@ -262,6 +271,21 @@ def main():
     print(f"Profit factor (net trade returns): {profit_factor:.3f}")
     print("Note: trade-level profit factor is not a portfolio-level risk-adjusted metric.")
     print(f"Average net trade: {sum(t['net_return_pct'] for t in results)/n:.3f}%" if n else "Average net trade: n/a")
+    # Chronological split: first 60% development, next 20% validation, final 20% holdout.
+    total_ms = max(1, int(datetime.now(timezone.utc).timestamp()*1000) - start)
+    cut1, cut2 = start + int(total_ms*0.60), start + int(total_ms*0.80)
+    train = [t for t in results if datetime.fromisoformat(t["entry_time"]).timestamp()*1000 < cut1]
+    valid_test = [t for t in results if cut1 <= datetime.fromisoformat(t["entry_time"]).timestamp()*1000 < cut2]
+    holdout = [t for t in results if datetime.fromisoformat(t["entry_time"]).timestamp()*1000 >= cut2]
+    print("\n=== CHRONOLOGICAL VALIDATION (not independent if rules were tuned on all years) ===")
+    period_summary(train, "Development 60%")
+    period_summary(valid_test, "Validation 20%")
+    period_summary(holdout, "Final holdout 20%")
+    print("\n=== FEE SENSITIVITY (per-side fee; same simulated entries/exits) ===")
+    for fee in (0.001, 0.0015, 0.002):
+        adjusted = [dict(t, net_return_pct=round(float(t["gross_return_pct"])-2*fee*100,4)) for t in results]
+        p = simulate_portfolio(adjusted, starting_equity=1000.0, risk_fraction=0.005, max_positions=3)
+        print(f"Fee {fee*100:.2f}% per side: portfolio return={p['net_return_pct']:.2f}%, max drawdown={p['max_drawdown_pct']:.2f}%, trades={p['trades_taken']}")
     print(f"CSV saved to: {OUT}")
     print("\nIMPORTANT: current top-volume universe creates survivorship bias; order-book filters, historic delistings, token news, and true fill/slippage are not reconstructed. Results are exploratory, not proof of future profitability.")
 if __name__ == "__main__":
