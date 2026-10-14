@@ -30,5 +30,32 @@ class AggregateTests(unittest.TestCase):
     def test_empty_input(self):
         self.assertEqual(backtest.aggregate([], 4), [])
 
+
+class PortfolioTests(unittest.TestCase):
+    def trade(self, entry, exit_, ret, risk=1.0):
+        return {"entry_time": entry, "exit_time": exit_, "net_return_pct": ret,
+                "risk_pct": risk}
+
+    def test_position_cap_skips_overlapping_fourth_trade(self):
+        trades = [
+            self.trade("2024-01-01T00:00:00+00:00","2024-01-01T10:00:00+00:00",2),
+            self.trade("2024-01-01T01:00:00+00:00","2024-01-01T11:00:00+00:00",2),
+            self.trade("2024-01-01T02:00:00+00:00","2024-01-01T12:00:00+00:00",2),
+            self.trade("2024-01-01T03:00:00+00:00","2024-01-01T13:00:00+00:00",2),
+        ]
+        result = backtest.simulate_portfolio(trades, starting_equity=1000, risk_fraction=.005, max_positions=3)
+        self.assertEqual(result["trades_taken"], 3)
+        self.assertEqual(result["trades_skipped"], 1)
+        self.assertGreater(result["ending_equity"], 1000)
+
+    def test_exits_free_slots_for_later_entries(self):
+        trades = [
+            self.trade("2024-01-01T00:00:00+00:00","2024-01-01T01:00:00+00:00",2),
+            self.trade("2024-01-01T02:00:00+00:00","2024-01-01T03:00:00+00:00",-1),
+        ]
+        result = backtest.simulate_portfolio(trades, starting_equity=1000, risk_fraction=.005, max_positions=1)
+        self.assertEqual(result["trades_taken"], 2)
+        self.assertEqual(result["trades_skipped"], 0)
+
 if __name__ == "__main__":
     unittest.main()
