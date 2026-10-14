@@ -1,0 +1,29 @@
+name: Five-year historical backtest
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+      - name: Unit tests
+        run: python -m unittest discover -s tests -v
+      - name: Run approximate five-year backtest
+        run: python backtest.py
+      - name: Save simulated trade results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: five-year-backtest-results
+          path: backtest_results.csv
+          if-no-files-found: warn
+          retention-days: 30
