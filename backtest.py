@@ -5,7 +5,7 @@ and approximates 4h/daily candles from hourly data. Historical order-book depth
 and spread are unavailable, so this is NOT an exact replay of live scanner alerts.
 No orders are placed.
 """
-import csv, math, time
+import csv, math, time, bisect
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import requests
@@ -91,14 +91,14 @@ def backtest_symbol(symbol, rows, btc_rows):
     # Index BTC closes by hourly candle timestamp for relative-strength comparison.
     btc_by_time = {r["time"]: r["close"] for r in btc_rows}
     h4, d1 = aggregate(rows, 4), aggregate(rows, 24)
-    h4_by_time = {r["time"]: i for i, r in enumerate(h4)}
-    d1_by_time = {r["time"]: i for i, r in enumerate(d1)}
+    h4_times = [x["time"] for x in h4]
+    d1_times = [x["time"] for x in d1]
     trades, i = [], 120
     while i < len(rows) - 2:
         r = rows[i]
         # Avoid lookahead: higher timeframe bars must have closed at/before signal time.
-        h4i = max((j for t, j in h4_by_time.items() if t <= r["time"]), default=-1)
-        d1i = max((j for t, j in d1_by_time.items() if t <= r["time"]), default=-1)
+        h4i = bisect.bisect_right(h4_times, r["time"]) - 1
+        d1i = bisect.bisect_right(d1_times, r["time"]) - 1
         if h4i < 50 or d1i < 50:
             i += 1; continue
         hourly = rows[max(0, i-79):i+1]
