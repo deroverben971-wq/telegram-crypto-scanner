@@ -87,6 +87,11 @@ def aggregate(rows, hours):
                     "close": group[-1]["close"], "volume": sum(x["volume"] for x in group)})
     return out
 
+def latest_closed_bar_index(bar_times, signal_close_time):
+    """Return the latest higher-timeframe bar index closed by signal_close_time."""
+    return bisect.bisect_right(bar_times, signal_close_time) - 1
+
+
 def backtest_symbol(symbol, rows, btc_rows):
     # Index BTC closes by hourly candle timestamp for relative-strength comparison.
     btc_by_time = {r["time"]: r["close"] for r in btc_rows}
@@ -100,8 +105,8 @@ def backtest_symbol(symbol, rows, btc_rows):
         # hourly candle, so its information is available at open_time + 1 hour.
         # Only higher-timeframe bars closed by that instant may be used.
         signal_close_time = r["time"] + 3600000
-        h4i = bisect.bisect_right(h4_times, signal_close_time) - 1
-        d1i = bisect.bisect_right(d1_times, signal_close_time) - 1
+        h4i = latest_closed_bar_index(h4_times, signal_close_time)
+        d1i = latest_closed_bar_index(d1_times, signal_close_time)
         if h4i < 50 or d1i < 50:
             i += 1; continue
         hourly = rows[max(0, i-79):i+1]
