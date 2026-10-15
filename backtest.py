@@ -121,6 +121,8 @@ def backtest_symbol(symbol, rows, btc_rows):
         if len(prior) < 20:
             i += 1; continue
         breakout = (r["close"] / max(x["high"] for x in prior) - 1) * 100
+        candle_range = r["high"] - r["low"]
+        close_location = (r["close"] - r["low"]) / candle_range if candle_range > 0 else 0
         avg_vol = sum(x["volume"] for x in prior) / len(prior)
         vol_ratio = r["volume"] / avg_vol if avg_vol else 0
         # Require contiguous hourly data for the lookback windows. Do not silently
@@ -140,11 +142,11 @@ def backtest_symbol(symbol, rows, btc_rows):
                  and scanner.ema(c4,20) > scanner.ema(c4,50) and c4[-1] > scanner.ema(c4,20)
                  and scanner.ema(cd,20) > scanner.ema(cd,50) and cd[-1] > scanner.ema(cd,20))
         if not (trend and rsi is not None and 52 <= rsi <= 68 and 0 <= breakout <= 1.2
-                and vol_ratio >= 1.3 and rs >= 1.5):
+                and vol_ratio >= 1.3 and rs >= 1.5 and close_location >= 0.65):
             i += 1; continue
         entry_i = i + 1
         entry = rows[entry_i]["open"] * (1 + SLIPPAGE_RATE)
-        stop = min(x["low"] for x in rows[max(0,i-4):i+1])
+        stop = min(x["low"] for x in rows[max(0,i-5):i])
         risk = entry - stop
         if stop <= 0 or not 0.005 <= risk / entry <= 0.03:
             i += 1; continue
