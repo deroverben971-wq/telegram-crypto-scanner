@@ -101,14 +101,14 @@ def scan():
             a=[x["close"] for x in h1]; b=[x["close"] for x in h4]; d=[x["close"] for x in d1]
             if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):
                 stats["trend"]+=1; continue
-            prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0
+            prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0; candle_range=h1[-1]["high"]-h1[-1]["low"]; close_location=(a[-1]-h1[-1]["low"])/candle_range if candle_range>0 else 0
             # Compare equal 24-hour windows using closed candles, not rolling ticker
             # percentages that can have slightly different observation timestamps.
             rs=relative_strength(h1,btc)
             if rs is None:
                 stats["insufficient_history"]+=1; continue
             drift=(p/a[-1]-1)*100
-            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or abs(drift)>.75:
+            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or close_location<.65 or abs(drift)>.75:
                 stats["momentum_breakout_volume_rs"]+=1; continue
             ob=get("/api/v3/depth",{"symbol":s,"limit":100}); bids=[(float(x[0]),float(x[1])) for x in ob.get("bids",[]) if len(x)>=2]; asks=[(float(x[0]),float(x[1])) for x in ob.get("asks",[]) if len(x)>=2]
             if not bids or not asks:
