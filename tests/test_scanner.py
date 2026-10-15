@@ -38,5 +38,27 @@ class RelativeStrengthTests(unittest.TestCase):
         btc=self.rows([100,105],[0,24*hour])
         self.assertIsNone(scanner.relative_strength(asset,btc))
 
+    def test_stale_benchmark_latest_candle_fails_closed(self):
+        hour=3_600_000
+        asset=self.rows([100,110],[0,24*hour])
+        btc=self.rows([100,105],[0,23*hour])
+        self.assertIsNone(scanner.relative_strength(asset,btc))
+
+    def test_contiguous_recent_accepts_even_spacing(self):
+        hour=3_600_000
+        rows=[{"time":i*hour} for i in range(55)]
+        self.assertTrue(scanner.contiguous_recent(rows,hour))
+
+    def test_contiguous_recent_rejects_gap(self):
+        hour=3_600_000
+        rows=[{"time":i*hour} for i in range(55)]
+        rows[-1]["time"] += hour
+        self.assertFalse(scanner.contiguous_recent(rows,hour))
+
+    def test_contiguous_recent_rejects_insufficient_history(self):
+        hour=3_600_000
+        rows=[{"time":i*hour} for i in range(54)]
+        self.assertFalse(scanner.contiguous_recent(rows,hour))
+
 if __name__ == "__main__":
     unittest.main()
