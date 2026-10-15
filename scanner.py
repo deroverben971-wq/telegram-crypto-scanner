@@ -72,26 +72,27 @@ def scan():
         if s in valid and b and b not in ex and not b.endswith(("UP","DOWN","BULL","BEAR")) and q>=3000000 and p>0:u.append((q,s,ch,p))
     u=sorted(u,reverse=True)[:60]
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
-    if min(len(btc),len(btc4),len(btcd))<55:
-        msg="🔎 SCANNER STATUS — NO TRADE\nReason: insufficient BTC market-regime history on one or more timeframes. The scanner fails closed rather than guessing. No coin qualified."
-        print(msg.replace("\n"," | "))
-        send(msg)
-        return
-    btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
-    # Broad market regime gate: avoid bullish altcoin alerts when BTC trend is weak
-    # on any of the same timeframes used by the candidate filter.
-    if not (ema(btc1c,20)>ema(btc1c,50) and btc1c[-1]>ema(btc1c,20)
+    btc_regime_ok = False
+    btc_regime_reason = "BTC market-regime unavailable; candidates are watch-only."
+    if min(len(btc),len(btc4),len(btcd)) >= 55:
+        btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
+        # BTC is an alert gate, not a reason to skip analyzing individual altcoins.
+        btc_regime_ok = (
+            ema(btc1c,20)>ema(btc1c,50) and btc1c[-1]>ema(btc1c,20)
             and ema(btc4c,20)>ema(btc4c,50) and btc4c[-1]>ema(btc4c,20)
-            and ema(btcdc,20)>ema(btcdc,50) and btcdc[-1]>ema(btcdc,20)):
-        msg="🔎 SCANNER STATUS — NO TRADE\nReason: BTC market-regime filter failed. BTC must be above its 20 EMA with EMA20 above EMA50 on 1h, 4h, and daily charts. This blocks bullish altcoin alerts while the broader trend is weak. No coin qualified."
-        print(msg.replace("\n"," | "))
-        send(msg)
-        return
+            and ema(btcdc,20)>ema(btcdc,50) and btcdc[-1]>ema(btcdc,20)
+        )
+        if not btc_regime_ok:
+            btc_regime_reason = "BTC trend gate failed on at least one of 1h, 4h, or daily; candidates will be WATCH ONLY."
+    else:
+        btc_regime_reason = "Insufficient BTC history on at least one timeframe; candidates will be WATCH ONLY."
+    if not btc_regime_ok:
+        print("BTC gate: " + btc_regime_reason)
     try:state=json.loads(STATE.read_text())
     except (OSError,ValueError):state={"alerts":{}}
     if not isinstance(state,dict) or not isinstance(state.get("alerts"),dict):state={"alerts":{}}
-    now=time.time(); count=0
-    stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0}
+    now=time.time(); count=0; watch_candidates=[]
+    stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0,"watch_only":0}
     for q,s,ch,p in u:
         if s=="BTCUSDT": continue
         stats["considered"]+=1
@@ -130,17 +131,29 @@ def scan():
                 stats["stop_risk"]+=1; continue
             target=p+2*risk
             msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nScan price: {p:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {(ask-bid)/mid*100:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
-            send(msg);state["alerts"][s]=now;tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE);count+=1;stats["qualified"]+=1
-            if count>=3:break
+            stats["qualified"]+=1
+            if btc_regime_ok:
+                send(msg)
+                state["alerts"][s]=now
+                tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE)
+                count+=1
+                if count>=3:break
+            else:
+                # Strong technical candidates are visible, but never become bullish alerts.
+                watch_candidates.append(f"{s} | price {p:.8g} USDT | RSI {rr:.1f} | volume {vr:.2f}x | RS vs BTC {rs:+.2f} pp | spread {(ask-bid)/mid*100:.3f}%")
+                stats["watch_only"]+=1
         except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
     print("\nScan diagnostics:")
     for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
-    summary = (
-        f"🔎 SCANNER STATUS — {count} setup alert(s) sent"
-        if count else
-        "🔎 SCANNER STATUS — NO TRADE"
-    )
+    if watch_candidates and not btc_regime_ok:
+        summary = "🔎 WATCH ONLY — BTC gate failed; no bullish alerts sent"
+    else:
+        summary = (
+            f"🔎 SCANNER STATUS — {count} setup alert(s) sent"
+            if count else
+            "🔎 SCANNER STATUS — NO TRADE"
+        )
     reasons = [
         ("cooldown (recent alert suppressed)", stats["cooldown"]),
         ("insufficient history or candle gaps", stats["insufficient_history"]),
@@ -149,13 +162,21 @@ def scan():
         ("spread/order-book depth filter failed", stats["orderbook_spread_depth"]),
         ("stop-distance/risk filter failed", stats["stop_risk"]),
         ("API/data errors while checking pairs", stats["api_errors"]),
-        ("passed all filters", stats["qualified"]),
+        ("passed individual technical filters", stats["qualified"]),
+        ("watch-only candidates blocked by BTC gate", stats["watch_only"]),
     ]
     detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
-    note = ("At least one setup passed the technical screen; this is not a buy recommendation."
-            if count else
-            "No pair passed every required filter this scan. Filters are deliberately strict; this does not predict that prices will fall.")
-    report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\n{note}\nNo orders placed; technical-only screening."
+    if watch_candidates and not btc_regime_ok:
+        candidates_text = "\n".join(f"• {item}" for item in watch_candidates[:3])
+        if len(watch_candidates) > 3:
+            candidates_text += f"\n• ...and {len(watch_candidates)-3} more watch-only candidate(s)"
+        note = f"{btc_regime_reason}\nThese passed the individual technical screen, but are not bullish alerts or buy recommendations."
+        report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\nWatch-only candidates (up to 3 shown):\n{candidates_text}\n\n{note}\nNo orders placed."
+    else:
+        note = ("At least one setup passed the technical screen; this is not a buy recommendation."
+                if count else
+                "No pair passed every required filter this scan. Filters are deliberately strict; this does not predict that prices will fall.")
+        report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\n{note}\nNo orders placed; technical-only screening."
     print(report)
     send(report)
 if __name__=="__main__":
