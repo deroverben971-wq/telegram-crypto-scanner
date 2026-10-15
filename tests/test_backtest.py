@@ -49,7 +49,7 @@ class AggregateTests(unittest.TestCase):
 class BtcRegimeTests(unittest.TestCase):
     def test_aligned_rising_market_passes(self):
         hour = 3_600_000
-        rows = [{"time": i*hour, "close": 100.0+i} for i in range(24*60)]
+        rows = [{"time": i*hour, "open": 99.5+i, "high": 101.0+i, "low": 99.0+i, "close": 100.0+i, "volume": 10.0} for i in range(24*60)]
         h4 = backtest.aggregate(rows, 4)
         d1 = backtest.aggregate(rows, 24)
         passed = backtest.btc_regime_aligned(
@@ -62,7 +62,7 @@ class BtcRegimeTests(unittest.TestCase):
 
     def test_insufficient_daily_history_fails_closed(self):
         hour = 3_600_000
-        rows = [{"time": i*hour, "close": 100.0+i} for i in range(24*20)]
+        rows = [{"time": i*hour, "open": 99.5+i, "high": 101.0+i, "low": 99.0+i, "close": 100.0+i, "volume": 10.0} for i in range(24*20)]
         h4 = backtest.aggregate(rows, 4)
         d1 = backtest.aggregate(rows, 24)
         passed = backtest.btc_regime_aligned(
