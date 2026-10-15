@@ -55,9 +55,16 @@ def scan():
         b=s[:-4] if s.endswith("USDT") else ""
         if s in valid and b and b not in ex and not b.endswith(("UP","DOWN","BULL","BEAR")) and q>=3000000 and p>0:u.append((q,s,ch,p))
     u=sorted(u,reverse=True)[:60]
-    btc=candles("BTCUSDT","1h")
-    if len(btc)<55 or ema([x["close"] for x in btc],20)<=ema([x["close"] for x in btc],50):
-        print("NO TRADE: BTC hourly trend filter failed.");return
+    btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
+    if min(len(btc),len(btc4),len(btcd))<55:
+        print("NO TRADE: insufficient BTC market-regime history.");return
+    btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
+    # Broad market regime gate: avoid bullish altcoin alerts when BTC trend is weak
+    # on any of the same timeframes used by the candidate filter.
+    if not (ema(btc1c,20)>ema(btc1c,50) and btc1c[-1]>ema(btc1c,20)
+            and ema(btc4c,20)>ema(btc4c,50) and btc4c[-1]>ema(btc4c,20)
+            and ema(btcdc,20)>ema(btcdc,50) and btcdc[-1]>ema(btcdc,20)):
+        print("NO TRADE: BTC 1h/4h/daily market-regime filter failed.");return
     try:state=json.loads(STATE.read_text())
     except (OSError,ValueError):state={"alerts":{}}
     if not isinstance(state,dict) or not isinstance(state.get("alerts"),dict):state={"alerts":{}}
