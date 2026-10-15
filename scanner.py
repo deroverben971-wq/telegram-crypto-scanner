@@ -73,14 +73,20 @@ def scan():
     u=sorted(u,reverse=True)[:60]
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
     if min(len(btc),len(btc4),len(btcd))<55:
-        print("NO TRADE: insufficient BTC market-regime history.");return
+        msg="🔎 SCANNER STATUS — NO TRADE\\nReason: insufficient BTC market-regime history on one or more timeframes. The scanner fails closed rather than guessing. No coin qualified."
+        print(msg.replace("\\n"," | "))
+        send(msg)
+        return
     btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
     # Broad market regime gate: avoid bullish altcoin alerts when BTC trend is weak
     # on any of the same timeframes used by the candidate filter.
     if not (ema(btc1c,20)>ema(btc1c,50) and btc1c[-1]>ema(btc1c,20)
             and ema(btc4c,20)>ema(btc4c,50) and btc4c[-1]>ema(btc4c,20)
             and ema(btcdc,20)>ema(btcdc,50) and btcdc[-1]>ema(btcdc,20)):
-        print("NO TRADE: BTC 1h/4h/daily market-regime filter failed.");return
+        msg="🔎 SCANNER STATUS — NO TRADE\\nReason: BTC market-regime filter failed. BTC must be above its 20 EMA with EMA20 above EMA50 on 1h, 4h, and daily charts. This blocks bullish altcoin alerts while the broader trend is weak. No coin qualified."
+        print(msg.replace("\\n"," | "))
+        send(msg)
+        return
     try:state=json.loads(STATE.read_text())
     except (OSError,ValueError):state={"alerts":{}}
     if not isinstance(state,dict) or not isinstance(state.get("alerts"),dict):state={"alerts":{}}
@@ -130,7 +136,28 @@ def scan():
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
     print("\nScan diagnostics:")
     for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
-    print(f"Scan complete; alerts sent: {count}" if count else "NO TRADE: no candidate passed every filter.")
+    summary = (
+        f"🔎 SCANNER STATUS — {count} setup alert(s) sent"
+        if count else
+        "🔎 SCANNER STATUS — NO TRADE"
+    )
+    reasons = [
+        ("cooldown (recent alert suppressed)", stats["cooldown"]),
+        ("insufficient history or candle gaps", stats["insufficient_history"]),
+        ("multi-timeframe trend failed", stats["trend"]),
+        ("RSI/breakout/volume/relative-strength/close-location/price-drift filter failed", stats["momentum_breakout_volume_rs"]),
+        ("spread/order-book depth filter failed", stats["orderbook_spread_depth"]),
+        ("stop-distance/risk filter failed", stats["stop_risk"]),
+        ("API/data errors while checking pairs", stats["api_errors"]),
+        ("passed all filters", stats["qualified"]),
+    ]
+    detail = "\\n".join(f"• {label}: {value}" for label, value in reasons)
+    note = ("At least one setup passed the technical screen; this is not a buy recommendation."
+            if count else
+            "No pair passed every required filter this scan. Filters are deliberately strict; this does not predict that prices will fall.")
+    report = f"{summary}\\nPairs considered: {stats['considered']}\\n{detail}\\n\\n{note}\\nNo orders placed; technical-only screening."
+    print(report)
+    send(report)
 if __name__=="__main__":
     if len(sys.argv)>1 and sys.argv[1]=="--test-telegram":send("Telegram scanner connectivity test only; no signal generated.");print("Telegram test sent.")
     else:scan()
