@@ -46,6 +46,34 @@ class AggregateTests(unittest.TestCase):
         self.assertEqual(backtest.latest_closed_bar_index(closed_at, 8 * 3_600_000), 1)
 
 
+class BtcRegimeTests(unittest.TestCase):
+    def test_aligned_rising_market_passes(self):
+        hour = 3_600_000
+        rows = [{"time": i*hour, "close": 100.0+i} for i in range(24*60)]
+        h4 = backtest.aggregate(rows, 4)
+        d1 = backtest.aggregate(rows, 24)
+        passed = backtest.btc_regime_aligned(
+            rows, [x["time"] for x in rows],
+            h4, [x["time"] for x in h4],
+            d1, [x["time"] for x in d1],
+            rows[-1]["time"] + hour,
+        )
+        self.assertTrue(passed)
+
+    def test_insufficient_daily_history_fails_closed(self):
+        hour = 3_600_000
+        rows = [{"time": i*hour, "close": 100.0+i} for i in range(24*20)]
+        h4 = backtest.aggregate(rows, 4)
+        d1 = backtest.aggregate(rows, 24)
+        passed = backtest.btc_regime_aligned(
+            rows, [x["time"] for x in rows],
+            h4, [x["time"] for x in h4],
+            d1, [x["time"] for x in d1],
+            rows[-1]["time"] + hour,
+        )
+        self.assertFalse(passed)
+
+
 class PortfolioTests(unittest.TestCase):
     def trade(self, entry, exit_, ret, risk=1.0):
         return {"entry_time": entry, "exit_time": exit_, "net_return_pct": ret,
