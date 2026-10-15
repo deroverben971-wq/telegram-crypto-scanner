@@ -92,9 +92,26 @@ def latest_closed_bar_index(bar_times, signal_close_time):
     return bisect.bisect_right(bar_times, signal_close_time) - 1
 
 
+def btc_regime_aligned(btc_rows, btc_h4, btc_d1, signal_close_time):
+    """Mirror the live scanner's BTC 1h/4h/daily EMA regime gate without look-ahead."""
+    btc_i = bisect.bisect_right([x["time"] for x in btc_rows], signal_close_time - 3600000) - 1
+    h4_i = latest_closed_bar_index([x["time"] for x in btc_h4], signal_close_time)
+    d1_i = latest_closed_bar_index([x["time"] for x in btc_d1], signal_close_time)
+    if btc_i < 50 or h4_i < 50 or d1_i < 50:
+        return False
+    c1 = [x["close"] for x in btc_rows[max(0, btc_i-79):btc_i+1]]
+    c4 = [x["close"] for x in btc_h4[max(0, h4_i-79):h4_i+1]]
+    cd = [x["close"] for x in btc_d1[max(0, d1_i-79):d1_i+1]]
+    return (scanner.ema(c1,20) > scanner.ema(c1,50) and c1[-1] > scanner.ema(c1,20)
+            and scanner.ema(c4,20) > scanner.ema(c4,50) and c4[-1] > scanner.ema(c4,20)
+            and scanner.ema(cd,20) > scanner.ema(cd,50) and cd[-1] > scanner.ema(cd,20))
+
+
 def backtest_symbol(symbol, rows, btc_rows):
     # Index BTC closes by hourly candle timestamp for relative-strength comparison.
     btc_by_time = {r["time"]: r["close"] for r in btc_rows}
+    btc_h4, btc_d1 = aggregate(btc_rows, 4), aggregate(btc_rows, 24)
+    btc_times = [x["time"] for x in btc_rows]
     h4, d1 = aggregate(rows, 4), aggregate(rows, 24)
     h4_times = [x["time"] for x in h4]
     d1_times = [x["time"] for x in d1]
@@ -105,6 +122,8 @@ def backtest_symbol(symbol, rows, btc_rows):
         # hourly candle, so its information is available at open_time + 1 hour.
         # Only higher-timeframe bars closed by that instant may be used.
         signal_close_time = r["time"] + 3600000
+        if not btc_regime_aligned(btc_rows, btc_h4, btc_d1, signal_close_time):
+            i += 1; continue
         h4i = latest_closed_bar_index(h4_times, signal_close_time)
         d1i = latest_closed_bar_index(d1_times, signal_close_time)
         if h4i < 50 or d1i < 50:
