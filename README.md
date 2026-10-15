@@ -4,13 +4,13 @@ Alert-only Binance USDT spot screener. It does not place orders. Signals are tec
 
 ## What it checks
 - Tradable Binance USDT spot pairs, filtered by 24-hour quote volume
-- Closed 1h, 4h, and daily candles; candidate trend alignment plus a BTC 1h/4h/daily market-regime gate
+- Closed 1h, 4h, and daily candles; candidate trend alignment plus a BTC 1h/4h/daily market-regime gate. When BTC fails or BTC history is insufficient, the scanner still analyzes eligible altcoins but reports any qualifying technical candidates as **WATCH ONLY** and sends no bullish setup alerts.
 - RSI, breakout versus the prior 20 hourly highs, candle close-location quality, timestamp-aligned 24-hour relative strength versus BTC, and volume expansion
 - Rejects candidates if the latest 55 hourly candles contain a timestamp gap
 - Best bid/ask spread and nearby order-book depth
 - Six-hour per-pair alert cooldown and a maximum of three alerts per scan
 
-It intentionally reports **NO TRADE** when no candidate passes all filters. Scan logs now include rejection counts for trend, momentum/breakout/volume/relative strength, order-book spread/depth, stop-risk, cooldown, insufficient history, and API errors. It does not check news, token unlocks, exploits, regulatory developments, or fundamentals.
+It intentionally reports **NO TRADE** when no candidate passes all filters. If BTC fails and individual coins pass the technical filters, it reports up to three **WATCH ONLY** candidates instead of treating them as bullish alerts. Scan logs now include rejection counts for trend, momentum/breakout/volume/relative strength, order-book spread/depth, stop-risk, cooldown, insufficient history, and API errors. It does not check news, token unlocks, exploits, regulatory developments, or fundamentals.
 
 ## Five-year historical backtest (manual)
 1. Open **Actions → Five-year historical backtest → Run workflow**.
@@ -25,7 +25,7 @@ The backtest tests an approximation of the technical setup on up to 15 pairs tha
 2. Add repository secrets named `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID`. Never paste secrets into source code or commit them.
 3. Open **Actions → Binance spot scanner → Run workflow**.
 4. Select `test_telegram=true` to send a test message first. If successful, run again with `false` to scan.
-5. Review the workflow logs for errors. Scheduled runs target every five minutes, but GitHub Actions may delay scheduled jobs, and public-repository usage limits/availability may apply.
+5. Review the workflow logs for errors. Scheduled runs target every 30 minutes, but GitHub Actions may delay scheduled jobs, and public-repository usage limits/availability may apply.
 
 ## Important limitations
 - This project is an experimental screener, not a proven profitable strategy. The five-year approximate backtest is exploratory, has a weak/negative final holdout, and has not established a durable edge. No sustained forward paper-trading study has been completed.
