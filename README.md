@@ -30,7 +30,7 @@ The backtest tests an approximation of the technical setup on up to 15 pairs tha
 ## Important limitations
 - This project is an experimental screener, not a proven profitable strategy. The five-year approximate backtest is exploratory, has a weak/negative final holdout, and has not established a durable edge. No sustained forward paper-trading study has been completed.
 - A passing test suite validates only the tested software behavior. It does not prove live API reliability, delivery on your Telegram account, or profitability. The backtest's historical universe is selected from pairs liquid today; it cannot fully remove survivorship bias or recreate historical order books, point-in-time listings, exchange outages, token events, or actual queue position.
-- The GitHub Actions runner is temporary. The local JSON cooldown state may not persist reliably between runs, so repeated alerts can occur if state is lost. Scheduled jobs can be delayed or skipped by GitHub; a five-minute cron is a target cadence, not a guaranteed execution SLA.
+- The GitHub Actions runner is temporary. The workflow now restores/saves the local JSON cooldown state through the Actions cache, but cache availability is best-effort rather than a durable database; state loss can still allow repeated alerts. Scheduled jobs can be delayed or skipped by GitHub; a five-minute cron is a target cadence, not a guaranteed execution SLA.
 - Stop and target levels are illustrative, not orders; gaps, slippage, fees, and liquidity can change outcomes.
 - Keep trading decisions cautious and discuss financial risk with a trusted adult. Never risk money you cannot afford to lose.
 
