@@ -34,7 +34,9 @@ def relative_strength(asset, benchmark, hours=24):
     if not asset or not benchmark:
         return None
     end_time=asset[-1].get("time")
-    if end_time is None:
+    # Require both markets to have the same latest closed candle; stale data
+    # must not silently pass as a synchronized relative-strength comparison.
+    if end_time is None or benchmark[-1].get("time") != end_time:
         return None
     start_time=end_time-hours*3600000
     asset_now=asset[-1].get("close")
@@ -44,6 +46,13 @@ def relative_strength(asset, benchmark, hours=24):
     if not all(isinstance(x,(int,float)) and math.isfinite(x) and x>0 for x in (asset_now,asset_prev,bench_now,bench_prev)):
         return None
     return ((asset_now/asset_prev-1)-(bench_now/bench_prev-1))*100
+
+def contiguous_recent(rows, interval_ms, count=55):
+    """Fail closed unless the latest requested candles are evenly spaced."""
+    if len(rows)<count:
+        return False
+    recent=rows[-count:]
+    return all(recent[i]["time"]-recent[i-1]["time"]==interval_ms for i in range(1,len(recent)))
 
 def candles(sym,iv):
     raw=get("/api/v3/klines",{"symbol":sym,"interval":iv,"limit":80}); now=int(datetime.now(timezone.utc).timestamp()*1000); out=[]
@@ -74,7 +83,9 @@ def scan():
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
     btc_regime_ok = False
     btc_regime_reason = "BTC market-regime unavailable; candidates are watch-only."
-    if min(len(btc),len(btc4),len(btcd)) >= 55:
+    btc_data_ok = (contiguous_recent(btc,3600000) and contiguous_recent(btc4,4*3600000)
+                   and contiguous_recent(btcd,24*3600000))
+    if btc_data_ok:
         btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
         # BTC is an alert gate, not a reason to skip analyzing individual altcoins.
         btc_regime_ok = (
@@ -85,7 +96,7 @@ def scan():
         if not btc_regime_ok:
             btc_regime_reason = "BTC trend gate failed on at least one of 1h, 4h, or daily; candidates will be WATCH ONLY."
     else:
-        btc_regime_reason = "Insufficient BTC history on at least one timeframe; candidates will be WATCH ONLY."
+        btc_regime_reason = "Insufficient or discontinuous BTC candle history on at least one timeframe; candidates will be WATCH ONLY."
     if not btc_regime_ok:
         print("BTC gate: " + btc_regime_reason)
     try:state=json.loads(STATE.read_text())
@@ -100,10 +111,8 @@ def scan():
             stats["cooldown"]+=1; continue
         try:
             h1=candles(s,"1h"); h4=candles(s,"4h"); d1=candles(s,"1d")
-            if min(len(h1),len(h4),len(d1))<55:
-                stats["insufficient_history"]+=1; continue
-            recent=h1[-55:]
-            if any(recent[j]["time"]-recent[j-1]["time"]!=3600000 for j in range(1,len(recent))):
+            if not (contiguous_recent(h1,3600000) and contiguous_recent(h4,4*3600000)
+                    and contiguous_recent(d1,24*3600000)):
                 stats["insufficient_history"]+=1; continue
             a=[x["close"] for x in h1]; b=[x["close"] for x in h4]; d=[x["close"] for x in d1]
             if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):
@@ -180,5 +189,18 @@ def scan():
     print(report)
     send(report)
 if __name__=="__main__":
-    if len(sys.argv)>1 and sys.argv[1]=="--test-telegram":send("Telegram scanner connectivity test only; no signal generated.");print("Telegram test sent.")
-    else:scan()
+    if len(sys.argv)>1 and sys.argv[1]=="--test-telegram":
+        send("Telegram scanner connectivity test only; no signal generated.")
+        print("Telegram test sent.")
+    else:
+        try:
+            scan()
+        except Exception as e:
+            # Send an operational failure notice when early market-data calls fail.
+            # Never include exception text, request URLs, or credentials in Telegram.
+            print(f"Scanner stopped before completing the scan: {type(e).__name__}")
+            try:
+                send("🚨 SCANNER ERROR — market scan did not complete. Check the latest GitHub Actions logs. No orders placed.")
+            except Exception as notify_error:
+                print(f"Could not send scanner failure notice: {type(notify_error).__name__}")
+            raise
