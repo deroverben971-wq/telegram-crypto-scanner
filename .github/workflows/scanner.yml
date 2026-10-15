@@ -47,7 +47,7 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scanner.py
       - name: Save alert cooldown state
-        if: always()
+        if: always() && hashFiles('.state.json') != ''
         uses: actions/cache/save@v4
         with:
           path: .state.json
