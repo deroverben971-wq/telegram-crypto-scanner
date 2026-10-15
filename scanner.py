@@ -29,6 +29,22 @@ def rsi(a,n=14):
     ag=sum(g[:n])/n; al=sum(l[:n])/n
     for i in range(n,len(d)):ag=((n-1)*ag+g[i])/n; al=((n-1)*al+l[i])/n
     return 100 if al==0 and ag>0 else 50 if al==0 else 100-100/(1+ag/al)
+def relative_strength(asset, benchmark, hours=24):
+    """Return asset minus benchmark return over the same closed-candle window, in pp."""
+    if not asset or not benchmark:
+        return None
+    end_time=asset[-1].get("time")
+    if end_time is None:
+        return None
+    start_time=end_time-hours*3600000
+    asset_now=asset[-1].get("close")
+    asset_prev=next((x.get("close") for x in reversed(asset[:-1]) if x.get("time")==start_time),None)
+    bench_now=next((x.get("close") for x in reversed(benchmark) if x.get("time")==end_time),None)
+    bench_prev=next((x.get("close") for x in reversed(benchmark) if x.get("time")==start_time),None)
+    if not all(isinstance(x,(int,float)) and math.isfinite(x) and x>0 for x in (asset_now,asset_prev,bench_now,bench_prev)):
+        return None
+    return ((asset_now/asset_prev-1)-(bench_now/bench_prev-1))*100
+
 def candles(sym,iv):
     raw=get("/api/v3/klines",{"symbol":sym,"interval":iv,"limit":80}); now=int(datetime.now(timezone.utc).timestamp()*1000); out=[]
     for x in raw:
@@ -88,13 +104,9 @@ def scan():
             prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0
             # Compare equal 24-hour windows using closed candles, not rolling ticker
             # percentages that can have slightly different observation timestamps.
-            target_time=h1[-1]["time"]-24*3600000
-            asset_prev=next((x["close"] for x in reversed(h1[:-1]) if x["time"]==target_time),None)
-            btc_now=next((x["close"] for x in reversed(btc) if x["time"]==h1[-1]["time"]),None)
-            btc_prev=next((x["close"] for x in reversed(btc) if x["time"]==target_time),None)
-            if not asset_prev or not btc_now or not btc_prev:
+            rs=relative_strength(h1,btc)
+            if rs is None:
                 stats["insufficient_history"]+=1; continue
-            rs=((a[-1]/asset_prev-1)-(btc_now/btc_prev-1))*100
             drift=(p/a[-1]-1)*100
             if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or abs(drift)>.75:
                 stats["momentum_breakout_volume_rs"]+=1; continue
