@@ -25,6 +25,13 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: Restore alert cooldown state
+        uses: actions/cache/restore@v4
+        with:
+          path: .state.json
+          key: scanner-state-${{ github.run_id }}
+          restore-keys: |
+            scanner-state-
       - name: Unit tests
         run: python -m unittest discover -s tests -v
       - name: Telegram connectivity test
@@ -39,3 +46,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scanner.py
+      - name: Save alert cooldown state
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .state.json
+          key: scanner-state-${{ github.run_id }}
