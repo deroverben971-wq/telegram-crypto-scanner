@@ -36,7 +36,7 @@ def candles(sym,iv):
             if len(x)<7 or int(x[6])>=now:continue
             o,h,l,c,v=map(float,x[1:6])
             if not all(math.isfinite(z) for z in (o,h,l,c,v)) or min(o,h,l,c)<=0 or v<0 or h<max(o,c,l) or l>min(o,c):continue
-            out.append({"high":h,"low":l,"close":c,"volume":v})
+            out.append({"time":int(x[0]),"high":h,"low":l,"close":c,"volume":v})
         except (ValueError,TypeError,IndexError):continue
     return out
 def send(msg):
@@ -54,7 +54,7 @@ def scan():
         except (ValueError,TypeError,KeyError):continue
         b=s[:-4] if s.endswith("USDT") else ""
         if s in valid and b and b not in ex and not b.endswith(("UP","DOWN","BULL","BEAR")) and q>=3000000 and p>0:u.append((q,s,ch,p))
-    u=sorted(u,reverse=True)[:60]; btcch=next((x[2] for x in u if x[1]=="BTCUSDT"),0)
+    u=sorted(u,reverse=True)[:60]
     btc=candles("BTCUSDT","1h")
     if len(btc)<55 or ema([x["close"] for x in btc],20)<=ema([x["close"] for x in btc],50):
         print("NO TRADE: BTC hourly trend filter failed.");return
@@ -72,10 +72,23 @@ def scan():
             h1=candles(s,"1h"); h4=candles(s,"4h"); d1=candles(s,"1d")
             if min(len(h1),len(h4),len(d1))<55:
                 stats["insufficient_history"]+=1; continue
+            recent=h1[-55:]
+            if any(recent[j]["time"]-recent[j-1]["time"]!=3600000 for j in range(1,len(recent))):
+                stats["insufficient_history"]+=1; continue
             a=[x["close"] for x in h1]; b=[x["close"] for x in h4]; d=[x["close"] for x in d1]
             if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):
                 stats["trend"]+=1; continue
-            prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0; rs=ch-btcch; drift=(p/a[-1]-1)*100
+            prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0
+            # Compare equal 24-hour windows using closed candles, not rolling ticker
+            # percentages that can have slightly different observation timestamps.
+            target_time=h1[-1]["time"]-24*3600000
+            asset_prev=next((x["close"] for x in reversed(h1[:-1]) if x["time"]==target_time),None)
+            btc_now=next((x["close"] for x in reversed(btc) if x["time"]==h1[-1]["time"]),None)
+            btc_prev=next((x["close"] for x in reversed(btc) if x["time"]==target_time),None)
+            if not asset_prev or not btc_now or not btc_prev:
+                stats["insufficient_history"]+=1; continue
+            rs=((a[-1]/asset_prev-1)-(btc_now/btc_prev-1))*100
+            drift=(p/a[-1]-1)*100
             if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or abs(drift)>.75:
                 stats["momentum_breakout_volume_rs"]+=1; continue
             ob=get("/api/v3/depth",{"symbol":s,"limit":100}); bids=[(float(x[0]),float(x[1])) for x in ob.get("bids",[]) if len(x)>=2]; asks=[(float(x[0]),float(x[1])) for x in ob.get("asks",[]) if len(x)>=2]
