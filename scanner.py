@@ -73,8 +73,8 @@ def scan():
     u=sorted(u,reverse=True)[:60]
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
     if min(len(btc),len(btc4),len(btcd))<55:
-        msg="🔎 SCANNER STATUS — NO TRADE\\nReason: insufficient BTC market-regime history on one or more timeframes. The scanner fails closed rather than guessing. No coin qualified."
-        print(msg.replace("\\n"," | "))
+        msg="🔎 SCANNER STATUS — NO TRADE\nReason: insufficient BTC market-regime history on one or more timeframes. The scanner fails closed rather than guessing. No coin qualified."
+        print(msg.replace("\n"," | "))
         send(msg)
         return
     btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
@@ -83,8 +83,8 @@ def scan():
     if not (ema(btc1c,20)>ema(btc1c,50) and btc1c[-1]>ema(btc1c,20)
             and ema(btc4c,20)>ema(btc4c,50) and btc4c[-1]>ema(btc4c,20)
             and ema(btcdc,20)>ema(btcdc,50) and btcdc[-1]>ema(btcdc,20)):
-        msg="🔎 SCANNER STATUS — NO TRADE\\nReason: BTC market-regime filter failed. BTC must be above its 20 EMA with EMA20 above EMA50 on 1h, 4h, and daily charts. This blocks bullish altcoin alerts while the broader trend is weak. No coin qualified."
-        print(msg.replace("\\n"," | "))
+        msg="🔎 SCANNER STATUS — NO TRADE\nReason: BTC market-regime filter failed. BTC must be above its 20 EMA with EMA20 above EMA50 on 1h, 4h, and daily charts. This blocks bullish altcoin alerts while the broader trend is weak. No coin qualified."
+        print(msg.replace("\n"," | "))
         send(msg)
         return
     try:state=json.loads(STATE.read_text())
@@ -151,11 +151,11 @@ def scan():
         ("API/data errors while checking pairs", stats["api_errors"]),
         ("passed all filters", stats["qualified"]),
     ]
-    detail = "\\n".join(f"• {label}: {value}" for label, value in reasons)
+    detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
     note = ("At least one setup passed the technical screen; this is not a buy recommendation."
             if count else
             "No pair passed every required filter this scan. Filters are deliberately strict; this does not predict that prices will fall.")
-    report = f"{summary}\\nPairs considered: {stats['considered']}\\n{detail}\\n\\n{note}\\nNo orders placed; technical-only screening."
+    report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\n{note}\nNo orders placed; technical-only screening."
     print(report)
     send(report)
 if __name__=="__main__":
