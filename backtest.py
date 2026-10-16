@@ -270,19 +270,34 @@ def period_summary(trades, label):
     avg = sum(float(t["net_return_pct"]) for t in trades) / n if n else 0.0
     print(f"{label}: trades={n}, win_rate={(wins/n*100 if n else 0):.2f}%, trade_PF={pf:.3f}, avg_net_trade={avg:.3f}%")
 
+def eligible_backtest_symbol(symbol, valid_symbols, excluded_bases=None):
+    """Filter stablecoin, leveraged, and known tokenized-equity symbols from the research universe."""
+    excluded = excluded_bases or set()
+    if not symbol.endswith("USDT") or symbol not in valid_symbols:
+        return False
+    base = symbol[:-4]
+    if not base or base in excluded:
+        return False
+    if base.endswith(("UP", "DOWN", "BULL", "BEAR", "2L", "2S", "3L", "3S", "5L", "5S")):
+        return False
+    # Known Binance tokenized-equity / index proxy base assets, not ordinary crypto assets.
+    if base in {"NVDAB", "TSLAB", "MSTRB", "CRCLB", "SNDKB", "SOXLB"}:
+        return False
+    return True
+
+
 def main():
     start = int((datetime.now(timezone.utc) - timedelta(days=365.25*YEARS)).timestamp()*1000)
     tickers = api("/api/v3/ticker/24hr")
     info = api("/api/v3/exchangeInfo")
     valid = {x["symbol"] for x in info.get("symbols",[]) if x.get("status")=="TRADING" and x.get("quoteAsset")=="USDT" and x.get("isSpotTradingAllowed",True)}
-    excluded = {"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","USD1","RLUSD","EUR","TRY","BRL","USTC"}
+    excluded = {"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","USD1","RLUSD","EUR","TRY","BRL","USTC","XAUT"}
     universe = []
     for t in tickers:
         sym = t.get("symbol","")
         try: vol = float(t["quoteVolume"])
         except (ValueError,TypeError,KeyError): continue
-        base = sym[:-4] if sym.endswith("USDT") else ""
-        if sym in valid and base and base not in excluded and not base.endswith(("UP","DOWN","BULL","BEAR")) and vol >= 3_000_000:
+        if eligible_backtest_symbol(sym, valid, excluded) and vol >= 3_000_000:
             universe.append((vol,sym))
     symbols = [s for _,s in sorted(universe,reverse=True)[:MAX_SYMBOLS]]
     if "BTCUSDT" not in symbols:
