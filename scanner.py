@@ -291,7 +291,14 @@ def scan():
                     and recent_and_contiguous(d1,24*3600000)):
                 stats["insufficient_history"]+=1; continue
             a=[x["close"] for x in h1]; b=[x["close"] for x in h4]; d=[x["close"] for x in d1]
-            if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):
+            trend_1h = ema(a,20)>ema(a,50) and a[-1]>ema(a,20)
+            trend_4h = ema(b,20)>ema(b,50) and b[-1]>ema(b,20)
+            trend_1d = ema(d,20)>ema(d,50) and d[-1]>ema(d,20)
+            strict_trend = trend_1h and trend_4h and trend_1d
+            # Relaxed tier is watch-only: still requires 1h strength and at least
+            # a constructive 4h structure; it never bypasses liquidity/risk gates.
+            watch_trend = trend_1h and (trend_4h or (b[-1]>ema(b,20) and ema(b,20)>=ema(b,50)))
+            if not strict_trend and not watch_trend:
                 stats["trend"]+=1; continue
             prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0; candle_range=h1[-1]["high"]-h1[-1]["low"]; close_location=(a[-1]-h1[-1]["low"])/candle_range if candle_range>0 else 0
             # Compare equal 24-hour windows using closed candles, not rolling ticker
@@ -299,7 +306,10 @@ def scan():
             rs=relative_strength(h1,btc)
             if rs is None:
                 stats["insufficient_history"]+=1; continue
-            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or close_location<.65:
+            strict_momentum = (rr is not None and 52<=rr<=68 and 0<=br<=1.2 and vr>=1.3 and rs>=1.5 and close_location>=.65)
+            watch_momentum = (rr is not None and 45<=rr<=72 and -0.5<=br<=1.8 and vr>=1.0 and rs>=0 and close_location>=.50)
+            is_confirmed = strict_trend and strict_momentum
+            if not is_confirmed and not (watch_trend and watch_momentum):
                 stats["momentum_breakout_volume_rs"]+=1; continue
             ob=get("/api/v3/depth",{"symbol":s,"limit":100}); book=orderbook_metrics(ob)
             if book is None or book["spread_pct"]>.15 or min(book["bid_depth"],book["ask_depth"])<15000:
@@ -314,7 +324,8 @@ def scan():
             if levels is None:
                 stats["stop_risk"]+=1; continue
             entry_ref,target=levels["entry_reference"],levels["target"]
-            msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            tier = "CONFIRMED TECHNICAL SCREEN" if is_confirmed else "EARLY WATCHLIST — RELAXED FILTERS"
+            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             # Log every qualifying technical setup, including BTC-gated watch-only
             # candidates, so evaluation is not conditioned on alert delivery.
@@ -323,15 +334,15 @@ def scan():
                 target, book["spread_pct"]
             )
             save_paper_state(paper_state)
-            if btc_regime_ok:
+            if is_confirmed and btc_regime_ok:
                 send(msg)
                 state["alerts"][s]=now
                 tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE)
                 count+=1
                 if count>=3:break
             else:
-                # Strong technical candidates are visible, but never become bullish alerts.
-                watch_candidates.append(f"{s} | price {p:.8g} USDT | RSI {rr:.1f} | volume {vr:.2f}x | RS vs BTC {rs:+.2f} pp | spread {(ask-bid)/mid*100:.3f}%")
+                # Relaxed candidates and BTC-gated candidates are watch-only.
+                watch_candidates.append(f"{s} | {tier} | price {p:.8g} USDT | RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | RS vs BTC {rs:+.2f} pp | spread {book['spread_pct']:.3f}%")
                 stats["watch_only"]+=1
         except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
