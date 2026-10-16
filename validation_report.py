@@ -110,7 +110,10 @@ def report(path):
     passed = (n >= 100 and day_count >= 60 and pf > 1.0
               and cluster_ci is not None and cluster_ci[0] > 0)
     if passed:
-        print("EVIDENCE GATE: preliminary historical pass only; independent forward paper validation remains mandatory.")
+        print("STATISTICAL SUB-GATE: preliminary pass on these trade-level summaries only.")
+        print("OVERALL EVIDENCE STATUS: NOT VALIDATED — current-liquid-pair selection has survivorship/selection bias,")
+        print("and the dataset does not reconstruct delisted pairs, point-in-time listings, historical liquidity,")
+        print("order-book conditions, or true fills. Independent forward paper validation remains mandatory.")
     else:
         reasons = []
         if n < 100:
