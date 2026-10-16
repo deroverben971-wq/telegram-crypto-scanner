@@ -4,13 +4,13 @@ Alert-only Binance USDT spot screener. It does not place orders. Signals are tec
 
 ## What it checks
 - Tradable Binance USDT spot pairs, filtered by 24-hour quote volume; stablecoin-like bases, known tokenized-equity/index proxies, and leveraged-token suffixes are excluded consistently in live scanning and historical universe selection
-- Closed 1h, 4h, and daily candles; candidate trend alignment plus a BTC 1h/4h/daily market-regime gate. When BTC fails or BTC history is insufficient, the scanner still analyzes eligible altcoins but reports any qualifying technical candidates as **WATCH ONLY** and sends no bullish setup alerts.
+- Closed 1h, 4h, and daily candles; confirmed candidates require full trend alignment plus the BTC 1h/4h/daily market-regime gate. A separate **EARLY WATCHLIST** tier uses looser momentum thresholds and requires a constructive 1h trend plus non-broken 4h structure; these are watch-only, not bullish alerts. When BTC fails or BTC history is insufficient, even fully confirmed individual candidates remain **WATCH ONLY**.
 - RSI, breakout versus the prior 20 hourly highs, candle close-location quality, timestamp-aligned 24-hour relative strength versus BTC, and volume expansion
 - Rejects candidates if the latest 55 hourly candles contain a timestamp gap
 - Best bid/ask spread and nearby order-book depth; illustrative long entry/target levels use the ask-side price rather than last-traded price, and reject excessive ask-side drift
 - Six-hour per-pair alert cooldown and a maximum of three alerts per scan
 
-It intentionally reports **NO TRADE** when no candidate passes all filters. If BTC fails and individual coins pass the technical filters, it reports up to three **WATCH ONLY** candidates instead of treating them as bullish alerts. Scan logs include rejection counts for trend, momentum/breakout/volume/relative strength, order-book spread/depth, stop-risk, cooldown, insufficient history, and API errors. It does not check news, token unlocks, exploits, regulatory developments, or fundamentals.
+It reports **NO TRADE** when no candidate passes either technical tier. Confirmed alerts still require every strict filter and a positive BTC regime. The early-watchlist tier can surface more developing setups without changing the confirmed-alert criteria; these candidates are never promoted to bullish alerts merely to increase alert frequency. If BTC fails, all candidates remain watch-only. Scan logs include rejection counts for trend, momentum/breakout/volume/relative strength, order-book spread/depth, stop-risk, cooldown, insufficient history, and API errors. It does not check news, token unlocks, exploits, regulatory developments, or fundamentals.
 
 ## Forward paper validation (new)
 - The live scanner records each qualifying technical setup once per symbol and closed 1h candle, including BTC-gated watch-only candidates, to reduce selection bias from only evaluating alerts that were sent.
