@@ -1,6 +1,6 @@
 import unittest
 
-from backtest import aggregate, chronological_splits, eligible_backtest_symbol, latest_closed_bar_index
+from backtest import aggregate, chronological_splits, eligible_backtest_symbol, latest_closed_bar_index, simulate_portfolio
 
 
 class BacktestDataIntegrityTests(unittest.TestCase):
@@ -51,6 +51,26 @@ class BacktestDataIntegrityTests(unittest.TestCase):
         self.assertEqual([t["symbol"] for t in development], ["A"])
         self.assertEqual([t["symbol"] for t in validation], ["C"])
         self.assertEqual([t["symbol"] for t in holdout], ["D"])
+
+    def test_portfolio_reports_concurrent_exposure_and_realized_drawdown_scope(self):
+        trades = [
+            {"entry_time": "2026-01-01T00:00:00+00:00",
+             "exit_time": "2026-01-01T02:00:00+00:00",
+             "risk_pct": 1.0, "net_return_pct": 2.0},
+            {"entry_time": "2026-01-01T01:00:00+00:00",
+             "exit_time": "2026-01-01T03:00:00+00:00",
+             "risk_pct": 1.0, "net_return_pct": -1.0},
+        ]
+        result = simulate_portfolio(trades, starting_equity=1000, risk_fraction=0.005,
+                                    max_positions=3)
+        self.assertEqual(result["trades_taken"], 2)
+        self.assertEqual(result["max_concurrent_positions"], 2)
+        self.assertGreater(result["max_open_risk_cash"], 0)
+        self.assertIn("excludes unrealized", result["drawdown_method"])
+
+    def test_portfolio_rejects_invalid_configuration(self):
+        with self.assertRaises(ValueError):
+            simulate_portfolio([], starting_equity=0)
 
     def test_backtest_universe_rejects_leveraged_and_tokenized_equity_pairs(self):
         valid = {"BTCUSDT", "ETHUSDT", "BTCUPUSDT", "NVDABUSDT", "XAUTUSDT"}
