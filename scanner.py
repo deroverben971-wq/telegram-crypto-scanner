@@ -68,10 +68,20 @@ def update_paper_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.00
                     continue
                 entry_cost = signal["entry_ask"] * (1 + fee_rate + slippage_rate)
                 exit_proceeds = bid * (1 - fee_rate - slippage_rate)
+                delay_ms = now_ms - due
+                # Never label a very late quote as if it were the intended horizon.
+                # With a 30-minute scan cadence, a 1h mark should be observed within
+                # one horizon; otherwise record a missed observation, not a fake return.
+                if delay_ms > delta:
+                    signal["marks"][horizon] = {
+                        "observed_ms": now_ms, "delay_ms": delay_ms,
+                        "missed": True, "reason": "no quote observed within horizon tolerance"
+                    }
+                    continue
                 net_pct = (exit_proceeds / entry_cost - 1) * 100
                 signal["marks"][horizon] = {
-                    "observed_ms": now_ms, "delay_ms": now_ms-due,
-                    "bid": bid, "ask": ask, "net_return_pct": net_pct,
+                    "observed_ms": now_ms, "delay_ms": delay_ms,
+                    "missed": False, "bid": bid, "ask": ask, "net_return_pct": net_pct,
                     "stop_touched_by_snapshot": bid <= signal["stop"],
                     "target_touched_by_snapshot": bid >= signal["target"]
                 }
