@@ -1,6 +1,6 @@
 import unittest
 
-from backtest import aggregate, latest_closed_bar_index
+from backtest import aggregate, eligible_backtest_symbol, latest_closed_bar_index
 
 
 class BacktestDataIntegrityTests(unittest.TestCase):
@@ -28,6 +28,19 @@ class BacktestDataIntegrityTests(unittest.TestCase):
         bar_close_times = [4*3600000, 8*3600000, 12*3600000]
         self.assertEqual(latest_closed_bar_index(bar_close_times, 8*3600000), 1)
         self.assertEqual(latest_closed_bar_index(bar_close_times, 8*3600000-1), 0)
+
+    def test_backtest_universe_rejects_leveraged_and_tokenized_equity_pairs(self):
+        valid = {"BTCUSDT", "ETHUSDT", "BTCUPUSDT", "NVDABUSDT", "XAUTUSDT"}
+        excluded = {"USDC", "XAUT"}
+        self.assertTrue(eligible_backtest_symbol("BTCUSDT", valid, excluded))
+        self.assertFalse(eligible_backtest_symbol("BTCUPUSDT", valid, excluded))
+        self.assertFalse(eligible_backtest_symbol("NVDABUSDT", valid, excluded))
+        self.assertFalse(eligible_backtest_symbol("XAUTUSDT", valid, excluded))
+
+    def test_backtest_universe_rejects_non_usdt_or_non_trading_pairs(self):
+        valid = {"BTCUSDT", "ETHBTC"}
+        self.assertFalse(eligible_backtest_symbol("ETHBTC", valid))
+        self.assertFalse(eligible_backtest_symbol("SOLUSDT", valid))
 
 
 if __name__ == "__main__":
