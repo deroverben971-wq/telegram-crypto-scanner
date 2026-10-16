@@ -350,6 +350,8 @@ def scan():
     for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
     if watch_candidates and not btc_regime_ok:
         summary = "🔎 WATCH ONLY — BTC gate failed; no bullish alerts sent"
+    elif watch_candidates:
+        summary = "🔎 WATCHLIST — early candidates found; only strict setups can trigger bullish alerts"
     else:
         summary = (
             f"🔎 SCANNER STATUS — {count} setup alert(s) sent"
