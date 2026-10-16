@@ -47,6 +47,23 @@ def relative_strength(asset, benchmark, hours=24):
         return None
     return ((asset_now/asset_prev-1)-(bench_now/bench_prev-1))*100
 
+def eligible_live_symbol(symbol, valid_symbols, excluded_bases=None):
+    """Keep the live scanner universe aligned with the backtest's spot-crypto universe."""
+    excluded = set(excluded_bases or ()) | {
+        "USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "BUSD",
+        "USD1", "RLUSD", "EUR", "TRY", "BRL", "USTC", "XAUT",
+        "NVDAB", "TSLAB", "MSTRB", "CRCLB", "SNDKB", "SOXLB",
+    }
+    if not symbol.endswith("USDT") or symbol not in valid_symbols:
+        return False
+    base = symbol[:-4]
+    if not base or base in excluded:
+        return False
+    if base.endswith(("UP", "DOWN", "BULL", "BEAR", "2L", "2S", "3L", "3S", "5L", "5S")):
+        return False
+    return True
+
+
 def safe_timestamp(value):
     """Parse cooldown timestamps defensively; malformed state must not abort a scan."""
     try:
@@ -111,13 +128,12 @@ def send(msg):
     if r.status_code>=400 or not isinstance(d,dict) or not d.get("ok"):raise RuntimeError(f"Telegram rejected message (HTTP {r.status_code})")
 def scan():
     info=get("/api/v3/exchangeInfo"); valid={x["symbol"] for x in info.get("symbols",[]) if x.get("status")=="TRADING" and x.get("quoteAsset")=="USDT" and x.get("isSpotTradingAllowed",True)}
-    ts=get("/api/v3/ticker/24hr"); ex={"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","USD1","RLUSD","EUR","TRY","BRL","USTC"}; u=[]
+    ts=get("/api/v3/ticker/24hr"); u=[]
     for t in ts:
         s=t.get("symbol","")
         try:q=float(t["quoteVolume"]); ch=float(t["priceChangePercent"]); p=float(t["lastPrice"])
         except (ValueError,TypeError,KeyError):continue
-        b=s[:-4] if s.endswith("USDT") else ""
-        if s in valid and b and b not in ex and not b.endswith(("UP","DOWN","BULL","BEAR")) and q>=3000000 and p>0:u.append((q,s,ch,p))
+        if eligible_live_symbol(s, valid) and q>=3000000 and p>0:u.append((q,s,ch,p))
     u=sorted(u,reverse=True)[:60]
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
     btc_regime_ok = False
