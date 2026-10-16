@@ -7,7 +7,7 @@ Alert-only Binance USDT spot screener. It does not place orders. Signals are tec
 - Closed 1h, 4h, and daily candles; candidate trend alignment plus a BTC 1h/4h/daily market-regime gate. When BTC fails or BTC history is insufficient, the scanner still analyzes eligible altcoins but reports any qualifying technical candidates as **WATCH ONLY** and sends no bullish setup alerts.
 - RSI, breakout versus the prior 20 hourly highs, candle close-location quality, timestamp-aligned 24-hour relative strength versus BTC, and volume expansion
 - Rejects candidates if the latest 55 hourly candles contain a timestamp gap
-- Best bid/ask spread and nearby order-book depth
+- Best bid/ask spread and nearby order-book depth; illustrative long entry/target levels use the ask-side price rather than last-traded price, and reject excessive ask-side drift
 - Six-hour per-pair alert cooldown and a maximum of three alerts per scan
 
 It intentionally reports **NO TRADE** when no candidate passes all filters. If BTC fails and individual coins pass the technical filters, it reports up to three **WATCH ONLY** candidates instead of treating them as bullish alerts. Scan logs include rejection counts for trend, momentum/breakout/volume/relative strength, order-book spread/depth, stop-risk, cooldown, insufficient history, and API errors. It does not check news, token unlocks, exploits, regulatory developments, or fundamentals.
@@ -34,7 +34,7 @@ The backtest uses up to 50 USDT spot pairs selected by their *current* 24-hour l
 - The validation report's statistical sub-gate is a screening rule, not a guarantee. Overall status remains NOT VALIDATED until survivorship bias and other data limitations are addressed and independent forward paper validation supports the result.
 - Unit tests validate only tested software behavior. They do not prove live API reliability, Telegram delivery, or profitability.
 - The GitHub Actions runner is temporary. Cooldown state uses the Actions cache, which is best-effort rather than a durable database; state loss can allow repeated alerts. Scheduled jobs can be delayed or skipped, so a 30-minute cron is a target cadence, not a guaranteed execution SLA.
-- Stop and target levels are illustrative, not orders; gaps, slippage, fees, and liquidity can change outcomes.
+- Stop and target levels are illustrative, not orders; live alerts use the current ask as a more conservative entry reference, but a snapshot order book is not a fill guarantee. Gaps, slippage, fees, spread changes, and liquidity can change outcomes.
 - Keep the scanner alert-only and use paper tracking. Never interpret a signal as a guarantee or risk money based on a backtest alone.
 
 ## Run locally
