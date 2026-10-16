@@ -26,6 +26,22 @@ class CooldownStateTests(unittest.TestCase):
         self.assertEqual(scanner.safe_timestamp(float("inf")), 0.0)
 
 
+class LiveUniverseTests(unittest.TestCase):
+    def test_excludes_stable_tokenized_and_leveraged_products(self):
+        valid = {"BTCUSDT", "ETHUSDT", "USDCUSDT", "NVDABUSDT",
+                 "BTCUPUSDT", "ETH2LUSDT", "XAUTUSDT", "ETHBTC"}
+        self.assertTrue(scanner.eligible_live_symbol("BTCUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("USDCUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("NVDABUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("BTCUPUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("ETH2LUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("XAUTUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("ETHBTC", valid))
+
+    def test_rejects_unknown_or_non_trading_pair(self):
+        self.assertFalse(scanner.eligible_live_symbol("SOLUSDT", {"BTCUSDT"}))
+
+
 class RelativeStrengthTests(unittest.TestCase):
     def rows(self, closes, times):
         return [{"time": t, "close": p} for t,p in zip(times,closes)]
