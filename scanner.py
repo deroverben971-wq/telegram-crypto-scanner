@@ -5,6 +5,88 @@ from pathlib import Path
 import requests
 BASE="https://data-api.binance.vision"; TG="https://api.telegram.org"; STATE=Path(".state.json")
 S=requests.Session(); S.headers.update({"User-Agent":"telegram-crypto-scanner/1.0"})
+
+PAPER_STATE = Path(".paper_state.json")
+PAPER_HORIZONS_MS = {"1h": 3600000, "4h": 4*3600000, "24h": 24*3600000, "72h": 72*3600000}
+
+def load_paper_state():
+    """Load persistent forward-paper observations; malformed state fails closed."""
+    try:
+        value = json.loads(PAPER_STATE.read_text(encoding="utf-8"))
+        if isinstance(value, dict) and isinstance(value.get("signals"), list):
+            return value
+    except (OSError, ValueError):
+        pass
+    return {"signals": [], "completed": []}
+
+def save_paper_state(state):
+    """Atomic local write; workflow cache is best-effort persistence, not a database."""
+    tmp = PAPER_STATE.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, allow_nan=False), encoding="utf-8")
+    tmp.replace(PAPER_STATE)
+
+def record_paper_signal(state, symbol, signal_close_ms, entry_ask, stop, target, spread_pct):
+    """Record one technical-screen event per symbol and closed 1h candle."""
+    try:
+        entry_ask, stop, target, spread_pct = map(float, (entry_ask, stop, target, spread_pct))
+        if (not symbol or signal_close_ms <= 0 or not all(math.isfinite(x) for x in
+                (entry_ask, stop, target, spread_pct)) or entry_ask <= 0
+                or stop <= 0 or stop >= entry_ask or target <= entry_ask or spread_pct < 0):
+            return False
+        key = f"{symbol}:{int(signal_close_ms)}"
+        if any(x.get("key") == key for x in state["signals"]) or any(x.get("key") == key for x in state["completed"]):
+            return False
+        state["signals"].append({
+            "key": key, "symbol": symbol, "signal_close_ms": int(signal_close_ms),
+            "entry_ask": entry_ask, "stop": stop, "target": target,
+            "entry_spread_pct": spread_pct, "marks": {}
+        })
+        return True
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+def update_paper_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.0005):
+    """Mark matured horizons using observed bid quotes; not actual fills.
+
+    Each horizon is marked at the first scanner observation at/after its due time.
+    Net return assumes fees and slippage on both sides; ask entry and bid exit
+    already incorporate the observed spread. Late marks are explicitly recorded.
+    """
+    if not isinstance(now_ms, int) or now_ms <= 0 or fee_rate < 0 or slippage_rate < 0:
+        raise ValueError("invalid paper-mark inputs")
+    for signal in list(state["signals"]):
+        quote = quotes.get(signal.get("symbol"))
+        if not isinstance(quote, dict):
+            continue
+        try:
+            bid, ask = float(quote["bid"]), float(quote["ask"])
+            if not all(math.isfinite(x) and x > 0 for x in (bid, ask)) or bid >= ask:
+                continue
+            for horizon, delta in PAPER_HORIZONS_MS.items():
+                due = signal["signal_close_ms"] + delta
+                if now_ms < due or horizon in signal["marks"]:
+                    continue
+                entry_cost = signal["entry_ask"] * (1 + fee_rate + slippage_rate)
+                exit_proceeds = bid * (1 - fee_rate - slippage_rate)
+                net_pct = (exit_proceeds / entry_cost - 1) * 100
+                signal["marks"][horizon] = {
+                    "observed_ms": now_ms, "delay_ms": now_ms-due,
+                    "bid": bid, "ask": ask, "net_return_pct": net_pct,
+                    "stop_touched_by_snapshot": bid <= signal["stop"],
+                    "target_touched_by_snapshot": bid >= signal["target"]
+                }
+        except (KeyError, TypeError, ValueError, OverflowError, ZeroDivisionError):
+            continue
+    still_open, completed = [], state["completed"]
+    for signal in state["signals"]:
+        if len(signal.get("marks", {})) == len(PAPER_HORIZONS_MS):
+            completed.append(signal)
+        else:
+            still_open.append(signal)
+    state["signals"] = still_open
+    state["completed"] = completed
+    return state
+
 def get(path,params=None):
     for i in range(3):
         try:
