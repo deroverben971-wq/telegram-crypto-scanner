@@ -3,7 +3,7 @@
 Alert-only Binance USDT spot screener. It does not place orders. Signals are technical filters, not predictions or investment advice; no profit or probability is guaranteed.
 
 ## What it checks
-- Tradable Binance USDT spot pairs, filtered by 24-hour quote volume
+- Tradable Binance USDT spot pairs, filtered by 24-hour quote volume; stablecoin-like bases, known tokenized-equity/index proxies, and leveraged-token suffixes are excluded consistently in live scanning and historical universe selection
 - Closed 1h, 4h, and daily candles; candidate trend alignment plus a BTC 1h/4h/daily market-regime gate. When BTC fails or BTC history is insufficient, the scanner still analyzes eligible altcoins but reports any qualifying technical candidates as **WATCH ONLY** and sends no bullish setup alerts.
 - RSI, breakout versus the prior 20 hourly highs, candle close-location quality, timestamp-aligned 24-hour relative strength versus BTC, and volume expansion
 - Rejects candidates if the latest 55 hourly candles contain a timestamp gap
