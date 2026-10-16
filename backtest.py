@@ -136,6 +136,14 @@ def backtest_symbol(symbol, rows, btc_rows):
         cd = [x["close"] for x in d1[max(0,d1i-79):d1i+1]]
         if min(len(c1),len(c4),len(cd)) < 50:
             i += 1; continue
+        # Higher-timeframe inputs must be contiguous too. A gap can otherwise
+        # make an EMA appear to cover a shorter/irregular calendar window.
+        h4_window = h4[max(0, h4i-49):h4i+1]
+        d1_window = d1[max(0, d1i-49):d1i+1]
+        if (len(h4_window) < 50 or len(d1_window) < 50
+                or any(h4_window[k]["time"]-h4_window[k-1]["time"] != 4*3600000 for k in range(1,len(h4_window)))
+                or any(d1_window[k]["time"]-d1_window[k-1]["time"] != 24*3600000 for k in range(1,len(d1_window)))):
+            i += 1; continue
         # Closed hourly candle at i; all indicators use data through i.
         rsi = scanner.rsi(c1)
         prior = rows[max(0,i-20):i]
@@ -166,7 +174,13 @@ def backtest_symbol(symbol, rows, btc_rows):
                 and vol_ratio >= 1.3 and rs >= 1.5 and close_location >= 0.65):
             i += 1; continue
         entry_i = i + 1
-        entry = rows[entry_i]["open"] * (1 + SLIPPAGE_RATE)
+        # Live scanner rejects a scan price that has drifted >0.75% from the
+        # last closed 1h candle. The next candle open is the closest reproducible
+        # historical proxy; this still cannot model intra-hour scan timing.
+        next_open = rows[entry_i]["open"]
+        if abs(next_open / r["close"] - 1) * 100 > 0.75:
+            i += 1; continue
+        entry = next_open * (1 + SLIPPAGE_RATE)
         stop = min(x["low"] for x in rows[max(0,i-5):i])
         risk = entry - stop
         if stop <= 0 or not 0.005 <= risk / entry <= 0.03:
