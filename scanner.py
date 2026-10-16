@@ -62,6 +62,37 @@ def contiguous_recent(rows, interval_ms, count=55):
     recent=rows[-count:]
     return all(recent[i]["time"]-recent[i-1]["time"]==interval_ms for i in range(1,len(recent)))
 
+def recent_and_contiguous(rows, interval_ms, count=55, now_ms=None):
+    """Require enough evenly spaced candles and reject stale market data."""
+    if not contiguous_recent(rows, interval_ms, count):
+        return False
+    now_ms = int(datetime.now(timezone.utc).timestamp()*1000) if now_ms is None else now_ms
+    age_ms = now_ms - (rows[-1]["time"] + interval_ms)
+    return -interval_ms <= age_ms <= 2 * interval_ms
+
+def orderbook_metrics(ob):
+    """Validate book levels and return spread and nearby USD depth, or None."""
+    try:
+        bids = [(float(x[0]), float(x[1])) for x in ob.get("bids", []) if len(x) >= 2]
+        asks = [(float(x[0]), float(x[1])) for x in ob.get("asks", []) if len(x) >= 2]
+        bids = [(p, q) for p, q in bids if math.isfinite(p) and math.isfinite(q) and p > 0 and q > 0]
+        asks = [(p, q) for p, q in asks if math.isfinite(p) and math.isfinite(q) and p > 0 and q > 0]
+        if not bids or not asks:
+            return None
+        bid, ask = max(x[0] for x in bids), min(x[0] for x in asks)
+        mid = (bid + ask) / 2
+        if not math.isfinite(mid) or mid <= 0 or ask <= bid:
+            return None
+        spread_pct = (ask - bid) / mid * 100
+        bid_depth = sum(p*q for p, q in bids if p >= mid*0.995)
+        ask_depth = sum(p*q for p, q in asks if p <= mid*1.005)
+        if not all(math.isfinite(x) for x in (spread_pct, bid_depth, ask_depth)):
+            return None
+        return {"bid": bid, "ask": ask, "mid": mid, "spread_pct": spread_pct,
+                "bid_depth": bid_depth, "ask_depth": ask_depth}
+    except (TypeError, ValueError, KeyError, OverflowError):
+        return None
+
 def candles(sym,iv):
     raw=get("/api/v3/klines",{"symbol":sym,"interval":iv,"limit":80}); now=int(datetime.now(timezone.utc).timestamp()*1000); out=[]
     for x in raw:
@@ -91,8 +122,8 @@ def scan():
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
     btc_regime_ok = False
     btc_regime_reason = "BTC market-regime unavailable; candidates are watch-only."
-    btc_data_ok = (contiguous_recent(btc,3600000) and contiguous_recent(btc4,4*3600000)
-                   and contiguous_recent(btcd,24*3600000))
+    btc_data_ok = (recent_and_contiguous(btc,3600000) and recent_and_contiguous(btc4,4*3600000)
+                   and recent_and_contiguous(btcd,24*3600000))
     if btc_data_ok:
         btc1c=[x["close"] for x in btc]; btc4c=[x["close"] for x in btc4]; btcdc=[x["close"] for x in btcd]
         # BTC is an alert gate, not a reason to skip analyzing individual altcoins.
@@ -119,8 +150,8 @@ def scan():
             stats["cooldown"]+=1; continue
         try:
             h1=candles(s,"1h"); h4=candles(s,"4h"); d1=candles(s,"1d")
-            if not (contiguous_recent(h1,3600000) and contiguous_recent(h4,4*3600000)
-                    and contiguous_recent(d1,24*3600000)):
+            if not (recent_and_contiguous(h1,3600000) and recent_and_contiguous(h4,4*3600000)
+                    and recent_and_contiguous(d1,24*3600000)):
                 stats["insufficient_history"]+=1; continue
             a=[x["close"] for x in h1]; b=[x["close"] for x in h4]; d=[x["close"] for x in d1]
             if not(ema(a,20)>ema(a,50) and a[-1]>ema(a,20) and ema(b,20)>ema(b,50) and b[-1]>ema(b,20) and ema(d,20)>ema(d,50) and d[-1]>ema(d,20)):
@@ -134,20 +165,15 @@ def scan():
             drift=(p/a[-1]-1)*100
             if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or close_location<.65 or abs(drift)>.75:
                 stats["momentum_breakout_volume_rs"]+=1; continue
-            ob=get("/api/v3/depth",{"symbol":s,"limit":100}); bids=[(float(x[0]),float(x[1])) for x in ob.get("bids",[]) if len(x)>=2]; asks=[(float(x[0]),float(x[1])) for x in ob.get("asks",[]) if len(x)>=2]
-            if not bids or not asks:
+            ob=get("/api/v3/depth",{"symbol":s,"limit":100}); book=orderbook_metrics(ob)
+            if book is None or book["spread_pct"]>.15 or min(book["bid_depth"],book["ask_depth"])<15000:
                 stats["orderbook_spread_depth"]+=1; continue
-            bid=max(x[0] for x in bids); ask=min(x[0] for x in asks); mid=(bid+ask)/2
-            if mid<=0 or ask<=bid or (ask-bid)/mid*100>.15:
-                stats["orderbook_spread_depth"]+=1; continue
-            bd=sum(x*y for x,y in bids if x>=mid*.995); ad=sum(x*y for x,y in asks if x<=mid*1.005)
-            if min(bd,ad)<15000:
-                stats["orderbook_spread_depth"]+=1; continue
+            bid,ask,mid=book["bid"],book["ask"],book["mid"]
             stop=min(x["low"] for x in h1[-6:-1]); risk=p-stop
             if stop<=0 or not .005<=risk/p<=.03:
                 stats["stop_risk"]+=1; continue
             target=p+2*risk
-            msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nScan price: {p:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {(ask-bid)/mid*100:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nScan price: {p:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             if btc_regime_ok:
                 send(msg)
