@@ -255,6 +255,20 @@ def scan():
     except (OSError,ValueError):state={"alerts":{}}
     if not isinstance(state,dict) or not isinstance(state.get("alerts"),dict):state={"alerts":{}}
     now=time.time(); count=0; watch_candidates=[]
+    # Forward paper validation: re-quote pending signal pairs and record marks
+    # at 1h/4h/24h/72h horizons. This is observational, not actual execution.
+    paper_state = load_paper_state()
+    paper_quotes = {}
+    pending_symbols = sorted({x.get("symbol") for x in paper_state["signals"] if x.get("symbol")})
+    for paper_symbol in pending_symbols:
+        try:
+            book = orderbook_metrics(get("/api/v3/depth", {"symbol": paper_symbol, "limit": 100}))
+            if book:
+                paper_quotes[paper_symbol] = {"bid": book["bid"], "ask": book["ask"]}
+        except (RuntimeError, ValueError, requests.RequestException, KeyError, TypeError):
+            pass
+    update_paper_marks(paper_state, int(time.time()*1000), paper_quotes)
+    save_paper_state(paper_state)
     stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0,"watch_only":0}
     for q,s,ch,p in u:
         if s=="BTCUSDT": continue
@@ -292,6 +306,13 @@ def scan():
             entry_ref,target=levels["entry_reference"],levels["target"]
             msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
+            # Log every qualifying technical setup, including BTC-gated watch-only
+            # candidates, so evaluation is not conditioned on alert delivery.
+            record_paper_signal(
+                paper_state, s, h1[-1]["time"] + 3600000, entry_ref, stop,
+                target, book["spread_pct"]
+            )
+            save_paper_state(paper_state)
             if btc_regime_ok:
                 send(msg)
                 state["alerts"][s]=now
