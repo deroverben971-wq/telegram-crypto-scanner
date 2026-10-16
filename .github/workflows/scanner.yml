@@ -28,7 +28,9 @@ jobs:
       - name: Restore alert cooldown state
         uses: actions/cache/restore@v4
         with:
-          path: .state.json
+          path: |
+            .state.json
+            .paper_state.json
           key: scanner-state-${{ github.run_id }}
           restore-keys: |
             scanner-state-
