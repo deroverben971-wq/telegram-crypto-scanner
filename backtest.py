@@ -231,11 +231,15 @@ def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_
         except (KeyError, ValueError, TypeError):
             continue
     entries.sort(key=lambda x: (x["entry_time"], x["exit_time"]))
+    if starting_equity <= 0 or risk_fraction <= 0 or max_positions < 1:
+        raise ValueError("starting_equity and risk_fraction must be positive; max_positions must be >= 1")
     equity = float(starting_equity)
     peak = equity
     max_dd = 0.0
     active = []
     taken = skipped = 0
+    max_concurrent_positions = 0
+    max_open_risk_cash = 0.0
     for trade in entries:
         still_active = []
         closed = []
@@ -254,12 +258,17 @@ def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_
             continue
         active.append({**trade, "risk_cash": equity * risk_fraction})
         taken += 1
+        max_concurrent_positions = max(max_concurrent_positions, len(active))
+        max_open_risk_cash = max(max_open_risk_cash, sum(p["risk_cash"] for p in active))
     for pos in sorted(active, key=lambda x: x["exit_time"]):
         equity += pos["risk_cash"] * pos["net_pct"] / pos["risk_pct"]
         peak = max(peak, equity)
         max_dd = max(max_dd, (peak - equity) / peak if peak else 0.0)
     return {"ending_equity": equity, "net_return_pct": (equity / starting_equity - 1) * 100,
-            "max_drawdown_pct": max_dd * 100, "trades_taken": taken, "trades_skipped": skipped}
+            "max_drawdown_pct": max_dd * 100, "trades_taken": taken, "trades_skipped": skipped,
+            "max_concurrent_positions": max_concurrent_positions,
+            "max_open_risk_cash": max_open_risk_cash,
+            "drawdown_method": "closed-trade realized equity only; excludes unrealized intratrade drawdown"}
 
 def period_summary(trades, label):
     n = len(trades)
@@ -364,7 +373,9 @@ def main():
     print("Portfolio starting equity: 1000.00 USDT; risk budget: 0.5% equity per trade; maximum concurrent positions: 3")
     print("Portfolio ending equity: {:.2f} USDT".format(portfolio["ending_equity"]))
     print("Portfolio net return: {:.2f}%".format(portfolio["net_return_pct"]))
-    print("Portfolio max drawdown: {:.2f}%".format(portfolio["max_drawdown_pct"]))
+    print("Portfolio max drawdown (realized closed-trade equity only; excludes open P&L): {:.2f}%".format(portfolio["max_drawdown_pct"]))
+    print("Maximum concurrent positions: {}".format(portfolio["max_concurrent_positions"]))
+    print("Maximum simultaneous planned stop-risk budget: {:.2f} USDT".format(portfolio["max_open_risk_cash"]))
     print("Portfolio trades taken / skipped at position cap: {} / {}".format(portfolio["trades_taken"], portfolio["trades_skipped"]))
     print(f"Profit factor (net trade returns): {profit_factor:.3f}")
     print("Note: trade-level profit factor is not a portfolio-level risk-adjusted metric.")
