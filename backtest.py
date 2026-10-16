@@ -13,7 +13,7 @@ import scanner
 
 BASE = "https://data-api.binance.vision"
 YEARS = 5
-MAX_SYMBOLS = 15
+MAX_SYMBOLS = 50
 FEE_RATE = 0.001  # illustrative 0.1% each side; change to match your fee tier
 SLIPPAGE_RATE = 0.0005  # illustrative 0.05% each side
 MAX_HOLD_HOURS = 72
