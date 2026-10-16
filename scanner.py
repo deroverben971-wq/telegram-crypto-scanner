@@ -87,6 +87,21 @@ def recent_and_contiguous(rows, interval_ms, count=55, now_ms=None):
     age_ms = now_ms - (rows[-1]["time"] + interval_ms)
     return -interval_ms <= age_ms <= 2 * interval_ms
 
+def long_setup_levels(book, stop):
+    """Use ask-side price as the illustrative entry reference for a long setup."""
+    try:
+        ask, stop = float(book["ask"]), float(stop)
+        if not math.isfinite(ask) or not math.isfinite(stop) or ask <= 0 or stop <= 0 or stop >= ask:
+            return None
+        risk_pct = (ask - stop) / ask
+        if not 0.005 <= risk_pct <= 0.03:
+            return None
+        return {"entry_reference": ask, "stop": stop, "risk_pct": risk_pct,
+                "target": ask + 2 * (ask - stop)}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
 def orderbook_metrics(ob):
     """Validate book levels and return spread and nearby USD depth, or None."""
     try:
@@ -178,18 +193,22 @@ def scan():
             rs=relative_strength(h1,btc)
             if rs is None:
                 stats["insufficient_history"]+=1; continue
-            drift=(p/a[-1]-1)*100
-            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or close_location<.65 or abs(drift)>.75:
+            if rr is None or not 52<=rr<=68 or not 0<=br<=1.2 or vr<1.3 or rs<1.5 or close_location<.65:
                 stats["momentum_breakout_volume_rs"]+=1; continue
             ob=get("/api/v3/depth",{"symbol":s,"limit":100}); book=orderbook_metrics(ob)
             if book is None or book["spread_pct"]>.15 or min(book["bid_depth"],book["ask_depth"])<15000:
                 stats["orderbook_spread_depth"]+=1; continue
             bid,ask,mid=book["bid"],book["ask"],book["mid"]
-            stop=min(x["low"] for x in h1[-6:-1]); risk=p-stop
-            if stop<=0 or not .005<=risk/p<=.03:
+            # Last price can understate the cost of crossing the spread.
+            drift=(ask/a[-1]-1)*100
+            if abs(drift)>.75:
+                stats["momentum_breakout_volume_rs"]+=1; continue
+            stop=min(x["low"] for x in h1[-6:-1])
+            levels=long_setup_levels(book,stop)
+            if levels is None:
                 stats["stop_risk"]+=1; continue
-            target=p+2*risk
-            msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nScan price: {p:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            entry_ref,target=levels["entry_reference"],levels["target"]
+            msg=(f"⚠️ WATCH — technical screen passed, NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             if btc_regime_ok:
                 send(msg)
