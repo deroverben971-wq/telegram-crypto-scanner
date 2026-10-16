@@ -4,7 +4,8 @@ on:
   push:
     paths:
       - "backtest.py"
-      - "tests/test_backtest.py"
+      - "validation_report.py"
+      - "tests/**"
       - ".github/workflows/backtest.yml"
 permissions:
   contents: read
@@ -24,11 +25,16 @@ jobs:
         run: python -m unittest discover -s tests -v
       - name: Run approximate five-year backtest
         run: python backtest.py
-      - name: Save simulated trade results
+      - name: Statistical evidence report
+        if: always() && hashFiles('backtest_results.csv') != ''
+        run: python validation_report.py | tee validation_report.txt
+      - name: Save backtest and validation outputs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: five-year-backtest-results
-          path: backtest_results.csv
+          name: five-year-backtest-validation
+          path: |
+            backtest_results.csv
+            validation_report.txt
           if-no-files-found: warn
           retention-days: 30
