@@ -16,6 +16,16 @@ class IndicatorTests(unittest.TestCase):
         self.assertIsNone(scanner.rsi([1, 2], 14))
 
 
+class CooldownStateTests(unittest.TestCase):
+    def test_valid_timestamp(self):
+        self.assertEqual(scanner.safe_timestamp("123.5"), 123.5)
+    def test_malformed_timestamp_defaults_to_zero(self):
+        self.assertEqual(scanner.safe_timestamp("not-a-number"), 0.0)
+    def test_negative_or_infinite_timestamp_defaults_to_zero(self):
+        self.assertEqual(scanner.safe_timestamp(-1), 0.0)
+        self.assertEqual(scanner.safe_timestamp(float("inf")), 0.0)
+
+
 class RelativeStrengthTests(unittest.TestCase):
     def rows(self, closes, times):
         return [{"time": t, "close": p} for t,p in zip(times,closes)]
