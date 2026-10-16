@@ -12,6 +12,14 @@ Alert-only Binance USDT spot screener. It does not place orders. Signals are tec
 
 It intentionally reports **NO TRADE** when no candidate passes all filters. If BTC fails and individual coins pass the technical filters, it reports up to three **WATCH ONLY** candidates instead of treating them as bullish alerts. Scan logs include rejection counts for trend, momentum/breakout/volume/relative strength, order-book spread/depth, stop-risk, cooldown, insufficient history, and API errors. It does not check news, token unlocks, exploits, regulatory developments, or fundamentals.
 
+## Forward paper validation (new)
+- The live scanner records each qualifying technical setup once per symbol and closed 1h candle, including BTC-gated watch-only candidates, to reduce selection bias from only evaluating alerts that were sent.
+- It tracks 1h, 4h, 24h, and 72h follow-up quote marks using the observed bid as the hypothetical exit and the original ask as the hypothetical entry. It applies illustrative 0.10% fees and 0.05% slippage per side.
+- Marks are recorded at the first scanner observation after each horizon, with the delay recorded. If the observation is more than one full horizon late, it is flagged as missed and no return is fabricated.
+- The ledger is stored in \`.paper_state.json\` and carried between GitHub Actions runs using the Actions cache. **GitHub cache is best-effort and not a durable database**; cache loss can interrupt the record. Save/export the state regularly if you need an auditable long-term record.
+- These are quote-based paper marks, not actual fills. A snapshot cannot establish queue position, market impact, exact stop/target path, or whether a price was continuously executable. Stop/target flags at a horizon are only snapshots, not proof the level was touched intraperiod.
+- Do not treat the ledger as a profitability certificate. Review mark counts, missed observations, horizon-specific net returns, symbol concentration, and market regimes only after enough observations accumulate.
+
 ## Five-year historical backtest
 1. Open **Actions → Five-year historical backtest → Run workflow** (or open a recent run).
 2. Wait for the run to finish; downloading five years of hourly data for up to 50 currently liquid pairs can take a while.
