@@ -47,6 +47,14 @@ def relative_strength(asset, benchmark, hours=24):
         return None
     return ((asset_now/asset_prev-1)-(bench_now/bench_prev-1))*100
 
+def safe_timestamp(value):
+    """Parse cooldown timestamps defensively; malformed state must not abort a scan."""
+    try:
+        parsed=float(value or 0)
+        return parsed if math.isfinite(parsed) and parsed>=0 else 0.0
+    except (TypeError,ValueError,OverflowError):
+        return 0.0
+
 def contiguous_recent(rows, interval_ms, count=55):
     """Fail closed unless the latest requested candles are evenly spaced."""
     if len(rows)<count:
@@ -72,7 +80,7 @@ def send(msg):
     if r.status_code>=400 or not isinstance(d,dict) or not d.get("ok"):raise RuntimeError(f"Telegram rejected message (HTTP {r.status_code})")
 def scan():
     info=get("/api/v3/exchangeInfo"); valid={x["symbol"] for x in info.get("symbols",[]) if x.get("status")=="TRADING" and x.get("quoteAsset")=="USDT" and x.get("isSpotTradingAllowed",True)}
-    ts=get("/api/v3/ticker/24hr"); ex={"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","EUR","TRY","BRL","USTC"}; u=[]
+    ts=get("/api/v3/ticker/24hr"); ex={"USDC","FDUSD","TUSD","USDP","DAI","USDE","BUSD","USD1","RLUSD","EUR","TRY","BRL","USTC"}; u=[]
     for t in ts:
         s=t.get("symbol","")
         try:q=float(t["quoteVolume"]); ch=float(t["priceChangePercent"]); p=float(t["lastPrice"])
@@ -107,7 +115,7 @@ def scan():
     for q,s,ch,p in u:
         if s=="BTCUSDT": continue
         stats["considered"]+=1
-        if now-float(state["alerts"].get(s,0) or 0)<21600:
+        if now-safe_timestamp(state["alerts"].get(s,0))<21600:
             stats["cooldown"]+=1; continue
         try:
             h1=candles(s,"1h"); h4=candles(s,"4h"); d1=candles(s,"1d")
