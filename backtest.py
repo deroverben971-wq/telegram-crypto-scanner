@@ -286,6 +286,34 @@ def eligible_backtest_symbol(symbol, valid_symbols, excluded_bases=None):
     return True
 
 
+
+def chronological_splits(trades, start_ms, end_ms, purge_ms=MAX_HOLD_HOURS * 3600000):
+    """Return development/validation/holdout trades with boundary-crossing trades purged.
+
+    A trade is included only when its entry and exit are both inside the same
+    chronological window. This prevents a position opened in one split from
+    using an exit outcome that extends into the next split.
+    """
+    span = max(1, int(end_ms) - int(start_ms))
+    cut1 = int(start_ms) + int(span * 0.60)
+    cut2 = int(start_ms) + int(span * 0.80)
+    # Purge a buffer around split boundaries as an extra guard against overlap.
+    bounds = [(int(start_ms), cut1), (cut1, cut2), (cut2, int(end_ms) + 1)]
+    buckets = [[], [], []]
+    for trade in trades:
+        try:
+            entry = int(datetime.fromisoformat(trade["entry_time"]).timestamp() * 1000)
+            exit_ = int(datetime.fromisoformat(trade["exit_time"]).timestamp() * 1000)
+        except (KeyError, TypeError, ValueError, OverflowError):
+            continue
+        for idx, (left, right) in enumerate(bounds):
+            lower = left + (purge_ms if idx > 0 else 0)
+            upper = right - (purge_ms if idx < 2 else 0)
+            if lower <= entry < upper and entry <= exit_ < right:
+                buckets[idx].append(trade)
+                break
+    return tuple(buckets)
+
 def main():
     start = int((datetime.now(timezone.utc) - timedelta(days=365.25*YEARS)).timestamp()*1000)
     tickers = api("/api/v3/ticker/24hr")
@@ -341,12 +369,10 @@ def main():
     print(f"Profit factor (net trade returns): {profit_factor:.3f}")
     print("Note: trade-level profit factor is not a portfolio-level risk-adjusted metric.")
     print(f"Average net trade: {sum(t['net_return_pct'] for t in results)/n:.3f}%" if n else "Average net trade: n/a")
-    # Chronological split: first 60% development, next 20% validation, final 20% holdout.
-    total_ms = max(1, int(datetime.now(timezone.utc).timestamp()*1000) - start)
-    cut1, cut2 = start + int(total_ms*0.60), start + int(total_ms*0.80)
-    train = [t for t in results if datetime.fromisoformat(t["entry_time"]).timestamp()*1000 < cut1]
-    valid_test = [t for t in results if cut1 <= datetime.fromisoformat(t["entry_time"]).timestamp()*1000 < cut2]
-    holdout = [t for t in results if datetime.fromisoformat(t["entry_time"]).timestamp()*1000 >= cut2]
+    # Chronological split with boundary purging to avoid cross-window outcomes.
+    end_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    train, valid_test, holdout = chronological_splits(results, start, end_ms)
+    print("Boundary purge: trades must enter and exit inside one split; 72-hour buffer around split boundaries.")
     print("\n=== CHRONOLOGICAL VALIDATION (not independent if rules were tuned on all years) ===")
     period_summary(train, "Development 60%")
     period_summary(valid_test, "Validation 20%")
