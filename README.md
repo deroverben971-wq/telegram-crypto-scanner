@@ -20,7 +20,7 @@ It intentionally reports **NO TRADE** when no candidate passes all filters. If B
 
 The backtest uses up to 50 USDT spot pairs selected by their *current* 24-hour liquidity. It uses five years of hourly candles, builds 4h/daily bars from hourly data, filters known leveraged-token and tokenized-equity symbols from the research universe, enters at the next candle open, simulates a stop and 2R target, assumes the stop occurs first if stop and target are both touched in one candle, and subtracts illustrative fees/slippage. A statistical report adds year-by-year summaries and a day-clustered bootstrap interval. These are useful safeguards, not proof of a profitable edge.
 
-**Important:** this is not a full replay of historical market conditions. Current-pair selection creates survivorship/selection bias; historical order-book spread/depth, token events, exact intrabar path, queue position, and real fills are not reconstructed. The portfolio model is still approximate. Do not tune parameters on the same period and then call that period independent validation.
+**Important:** this is not a full replay of historical market conditions. Current-pair selection creates survivorship/selection bias; historical order-book spread/depth, token events, exact intrabar path, queue position, and real fills are not reconstructed. The portfolio model reports concurrent positions and maximum simultaneous planned stop-risk, but its drawdown is based on closed-trade realized equity and excludes unrealized losses while positions are open. It is not a full mark-to-market portfolio simulator. Chronological development/validation/holdout splits now purge trades that cross split boundaries and apply a 72-hour buffer. The evidence report can show a statistical sub-gate, but overall strategy status remains NOT VALIDATED while the historical universe has survivorship/selection bias. Do not tune parameters on the same period and then call that period independent validation.
 
 ## Setup
 1. In GitHub, open **Settings → Secrets and variables → Actions**.
@@ -31,7 +31,7 @@ The backtest uses up to 50 USDT spot pairs selected by their *current* 24-hour l
 
 ## Important limitations and acceptance criteria
 - This project is an experimental screener, not a proven profitable strategy. Earlier results were weak/negative, including a poor final holdout; no durable edge has been established. The expanded backtest must finish before its new results can be assessed.
-- The validation report's evidence gate is a screening rule, not a guarantee. Even a historical pass would require independent forward paper validation before any claim of edge.
+- The validation report's statistical sub-gate is a screening rule, not a guarantee. Overall status remains NOT VALIDATED until survivorship bias and other data limitations are addressed and independent forward paper validation supports the result.
 - Unit tests validate only tested software behavior. They do not prove live API reliability, Telegram delivery, or profitability.
 - The GitHub Actions runner is temporary. Cooldown state uses the Actions cache, which is best-effort rather than a durable database; state loss can allow repeated alerts. Scheduled jobs can be delayed or skipped, so a 30-minute cron is a target cadence, not a guaranteed execution SLA.
 - Stop and target levels are illustrative, not orders; gaps, slippage, fees, and liquidity can change outcomes.
