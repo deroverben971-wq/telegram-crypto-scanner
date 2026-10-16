@@ -155,6 +155,15 @@ class ForwardPaperTrackingTests(unittest.TestCase):
         scanner.update_paper_marks(self.state, 1_000_000 + 24*3_600_000, {})
         self.assertEqual(self.state["signals"][0]["marks"], {})
 
+
+    def test_late_snapshot_is_flagged_instead_of_fabricating_horizon_return(self):
+        scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
+        scanner.update_paper_marks(self.state, 1_000_000 + 10*3_600_000,
+                                    {"ETHUSDT": {"bid": 101, "ask": 101.1}})
+        mark = self.state["signals"][0]["marks"]["1h"]
+        self.assertTrue(mark["missed"])
+        self.assertNotIn("net_return_pct", mark)
+
     def test_completed_only_after_all_horizons_observed(self):
         scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
         scanner.update_paper_marks(self.state, 1_000_000 + 72*3_600_000,
