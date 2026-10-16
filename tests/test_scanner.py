@@ -96,6 +96,20 @@ class RelativeStrengthTests(unittest.TestCase):
         rows=[{"time":i*hour} for i in range(55)]
         self.assertTrue(scanner.recent_and_contiguous(rows,hour,now_ms=55*hour))
 
+    def test_long_setup_levels_uses_ask_for_entry_and_target(self):
+        levels = scanner.long_setup_levels({"ask": 101.0}, 99.0)
+        self.assertIsNotNone(levels)
+        self.assertEqual(levels["entry_reference"], 101.0)
+        self.assertEqual(levels["stop"], 99.0)
+        self.assertAlmostEqual(levels["target"], 105.0)
+        self.assertAlmostEqual(levels["risk_pct"], 2.0 / 101.0)
+
+    def test_long_setup_levels_rejects_invalid_or_out_of_range_risk(self):
+        self.assertIsNone(scanner.long_setup_levels({"ask": 100}, 100))
+        self.assertIsNone(scanner.long_setup_levels({"ask": 100}, 99.8))
+        self.assertIsNone(scanner.long_setup_levels({"ask": 100}, 96))
+        self.assertIsNone(scanner.long_setup_levels({"ask": float("nan")}, 99))
+
     def test_orderbook_metrics_valid_book(self):
         book=scanner.orderbook_metrics({"bids":[["99.95","200"]],"asks":[["100.05","200"]]})
         self.assertIsNotNone(book)
