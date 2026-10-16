@@ -70,5 +70,28 @@ class RelativeStrengthTests(unittest.TestCase):
         rows=[{"time":i*hour} for i in range(54)]
         self.assertFalse(scanner.contiguous_recent(rows,hour))
 
+    def test_recent_and_contiguous_rejects_stale_data(self):
+        hour=3_600_000
+        rows=[{"time":i*hour} for i in range(55)]
+        self.assertFalse(scanner.recent_and_contiguous(rows,hour,now_ms=100*hour))
+
+    def test_recent_and_contiguous_accepts_recent_data(self):
+        hour=3_600_000
+        rows=[{"time":i*hour} for i in range(55)]
+        self.assertTrue(scanner.recent_and_contiguous(rows,hour,now_ms=55*hour))
+
+    def test_orderbook_metrics_valid_book(self):
+        book=scanner.orderbook_metrics({"bids":[["99.95","200"]],"asks":[["100.05","200"]]})
+        self.assertIsNotNone(book)
+        self.assertAlmostEqual(book["spread_pct"],0.1,places=5)
+        self.assertGreater(book["bid_depth"],0)
+
+    def test_orderbook_metrics_rejects_crossed_or_empty_book(self):
+        self.assertIsNone(scanner.orderbook_metrics({"bids":[["101","2"]],"asks":[["100","2"]]}))
+        self.assertIsNone(scanner.orderbook_metrics({"bids":[],"asks":[]}))
+
+    def test_orderbook_metrics_ignores_nonfinite_levels(self):
+        self.assertIsNone(scanner.orderbook_metrics({"bids":[["NaN","2"]],"asks":[["100","2"]]}))
+
 if __name__ == "__main__":
     unittest.main()
