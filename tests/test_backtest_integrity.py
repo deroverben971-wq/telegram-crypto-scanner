@@ -1,6 +1,6 @@
 import unittest
 
-from backtest import aggregate, eligible_backtest_symbol, latest_closed_bar_index
+from backtest import aggregate, chronological_splits, eligible_backtest_symbol, latest_closed_bar_index
 
 
 class BacktestDataIntegrityTests(unittest.TestCase):
@@ -28,6 +28,29 @@ class BacktestDataIntegrityTests(unittest.TestCase):
         bar_close_times = [4*3600000, 8*3600000, 12*3600000]
         self.assertEqual(latest_closed_bar_index(bar_close_times, 8*3600000), 1)
         self.assertEqual(latest_closed_bar_index(bar_close_times, 8*3600000-1), 0)
+
+
+    def test_chronological_splits_purge_boundary_crossing_trades(self):
+        from datetime import datetime, timezone
+
+        start = 0
+        end = 1000 * 1000  # milliseconds; split at 600000 and 800000
+        def iso(ms):
+            return datetime.fromtimestamp(ms / 1000, timezone.utc).isoformat()
+
+        trades = [
+            {"symbol": "A", "entry_time": iso(100000), "exit_time": iso(200000)},  # development
+            {"symbol": "B", "entry_time": iso(590000), "exit_time": iso(610000)},  # crosses boundary
+            {"symbol": "C", "entry_time": iso(700000), "exit_time": iso(750000)},  # validation
+            {"symbol": "D", "entry_time": iso(810000), "exit_time": iso(820000)},  # holdout
+        ]
+        # Disable the extra time buffer so this test isolates crossing-trade purging.
+        development, validation, holdout = chronological_splits(
+            trades, start, end, purge_ms=0
+        )
+        self.assertEqual([t["symbol"] for t in development], ["A"])
+        self.assertEqual([t["symbol"] for t in validation], ["C"])
+        self.assertEqual([t["symbol"] for t in holdout], ["D"])
 
     def test_backtest_universe_rejects_leveraged_and_tokenized_equity_pairs(self):
         valid = {"BTCUSDT", "ETHUSDT", "BTCUPUSDT", "NVDABUSDT", "XAUTUSDT"}
