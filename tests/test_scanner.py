@@ -123,5 +123,45 @@ class RelativeStrengthTests(unittest.TestCase):
     def test_orderbook_metrics_ignores_nonfinite_levels(self):
         self.assertIsNone(scanner.orderbook_metrics({"bids":[["NaN","2"]],"asks":[["100","2"]]}))
 
+
+class ForwardPaperTrackingTests(unittest.TestCase):
+    def setUp(self):
+        self.state = {"signals": [], "completed": []}
+
+    def test_records_unique_signal_per_closed_candle(self):
+        args = (self.state, "ETHUSDT", 1_000_000, 100.0, 98.0, 104.0, 0.1)
+        self.assertTrue(scanner.record_paper_signal(*args))
+        self.assertFalse(scanner.record_paper_signal(*args))
+        self.assertEqual(len(self.state["signals"]), 1)
+
+    def test_rejects_invalid_signal_levels(self):
+        self.assertFalse(scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 100, 104, 0.1))
+        self.assertFalse(scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, float("nan"), 98, 104, 0.1))
+        self.assertEqual(self.state["signals"], [])
+
+    def test_marks_due_horizon_using_bid_and_costs(self):
+        scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
+        scanner.update_paper_marks(self.state, 1_000_000 + 3_600_000,
+                                    {"ETHUSDT": {"bid": 101, "ask": 101.1}})
+        signal = self.state["signals"][0]
+        mark = signal["marks"]["1h"]
+        self.assertEqual(mark["bid"], 101)
+        self.assertEqual(mark["delay_ms"], 0)
+        self.assertLess(mark["net_return_pct"], 1.0)
+        self.assertNotIn("4h", signal["marks"])
+
+    def test_missing_quote_does_not_fabricate_mark(self):
+        scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
+        scanner.update_paper_marks(self.state, 1_000_000 + 24*3_600_000, {})
+        self.assertEqual(self.state["signals"][0]["marks"], {})
+
+    def test_completed_only_after_all_horizons_observed(self):
+        scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
+        scanner.update_paper_marks(self.state, 1_000_000 + 72*3_600_000,
+                                    {"ETHUSDT": {"bid": 101, "ask": 101.1}})
+        self.assertEqual(len(self.state["completed"]), 1)
+        self.assertEqual(len(self.state["signals"]), 0)
+        self.assertEqual(set(self.state["completed"][0]["marks"]), {"1h", "4h", "24h", "72h"})
+
 if __name__ == "__main__":
     unittest.main()
