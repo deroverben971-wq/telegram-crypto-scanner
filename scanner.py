@@ -440,16 +440,11 @@ def scan():
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
     print("\nScan diagnostics:")
     for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
-    if watch_candidates and not btc_regime_ok:
-        summary = "🔎 WATCH ONLY — BTC gate failed; no bullish alerts sent"
-    elif watch_candidates:
-        summary = "🔎 WATCHLIST — early candidates found; only strict setups can trigger bullish alerts"
+    if count:
+        summary = f"🔎 SCAN RESULT — {count} confirmed technical alert(s) sent"
     else:
-        summary = (
-            f"🔎 SCANNER STATUS — {count} setup alert(s) sent"
-            if count else
-            "🔎 SCANNER STATUS — NO TRADE"
-        )
+        summary = "⛔ NO TRADE — no coin passed every strict confirmation rule"
+
     reasons = [
         ("cooldown (recent alert suppressed)", stats["cooldown"]),
         ("insufficient history or candle gaps", stats["insufficient_history"]),
@@ -459,22 +454,30 @@ def scan():
         ("stop-distance/risk filter failed", stats["stop_risk"]),
         ("API/data errors while checking pairs", stats["api_errors"]),
         ("passed individual technical filters", stats["qualified"]),
-        ("watch-only candidates blocked by BTC gate", stats["watch_only"]),
+        ("watch-only candidates", stats["watch_only"]),
     ]
-    detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
+    detail = "\\n".join(f"• {label}: {value}" for label, value in reasons)
+
     if watch_candidates:
-        candidates_text = "\n".join(f"• {item}" for item in watch_candidates[:10])
+        candidates_text = "\\n".join(f"• {item}" for item in watch_candidates[:10])
         if len(watch_candidates) > 10:
-            candidates_text += f"\n• ...and {len(watch_candidates)-10} more watch-only candidate(s)"
-        note = (f"{btc_regime_reason}\nThese are watch-only, not bullish alerts or buy recommendations."
-                if not btc_regime_ok else
-                "These candidates failed one or more strict confirmation conditions. They are watch-only, not bullish alerts or buy recommendations.")
-        report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\nWatchlist coins (up to 10 shown; watch-only, not buy signals):\n{candidates_text}\n\n{note}\nNo orders placed."
+            candidates_text += f"\\n• ...and {len(watch_candidates)-10} more watch-only candidate(s)"
+        watch_note = (
+            f"{btc_regime_reason}\\n"
+            "Watchlist entries are early candidates only—not buy signals. Wait for strict confirmation and check news/token risks."
+            if not btc_regime_ok else
+            "These candidates did not meet every strict confirmation condition. Watchlist only—not buy signals."
+        )
     else:
-        note = ("At least one setup passed the technical screen; this is not a buy recommendation."
-                if count else
-                "No pair passed every required filter this scan. Filters are deliberately strict; this does not predict that prices will fall.")
-        report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\n{note}\nNo orders placed; technical-only screening."
+        candidates_text = "No coins qualified for the watchlist this scan."
+        watch_note = "Do not force a pick. A blank watchlist means no candidate passed even the relaxed watchlist filters."
+
+    note = "No automatic orders are placed. A watchlist candidate is not a prediction or guarantee of a winning trade."
+    report = (
+        f"{summary}\\nPairs considered: {stats['considered']}\\n{detail}"
+        f"\\n\\n👀 WATCHLIST — potential candidates to monitor\\n{candidates_text}"
+        f"\\n\\n{watch_note}\\n{note}"
+    )
     print(report)
     send(report)
 if __name__=="__main__":
