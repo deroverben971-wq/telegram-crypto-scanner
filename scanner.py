@@ -446,37 +446,56 @@ def scan():
         summary = "⛔ NO TRADE — no coin passed every strict confirmation rule"
 
     reasons = [
-        ("cooldown (recent alert suppressed)", stats["cooldown"]),
-        ("insufficient history or candle gaps", stats["insufficient_history"]),
-        ("multi-timeframe trend failed", stats["trend"]),
-        ("RSI/breakout/volume/relative-strength/close-location/price-drift filter failed", stats["momentum_breakout_volume_rs"]),
-        ("spread/order-book depth filter failed", stats["orderbook_spread_depth"]),
-        ("stop-distance/risk filter failed", stats["stop_risk"]),
-        ("API/data errors while checking pairs", stats["api_errors"]),
-        ("passed individual technical filters", stats["qualified"]),
-        ("watch-only candidates", stats["watch_only"]),
+        ("Pairs considered", stats["considered"]),
+        ("Recent-alert cooldown", stats["cooldown"]),
+        ("Insufficient history / candle gaps", stats["insufficient_history"]),
+        ("Multi-timeframe trend failed", stats["trend"]),
+        ("Momentum / breakout / volume / relative-strength filters failed", stats["momentum_breakout_volume_rs"]),
+        ("Spread / order-book depth failed", stats["orderbook_spread_depth"]),
+        ("Stop-distance / risk failed", stats["stop_risk"]),
+        ("API / data errors", stats["api_errors"]),
+        ("Passed technical filters", stats["qualified"]),
+        ("Watch-only technical candidates", stats["watch_only"]),
     ]
     detail = "\\n".join(f"• {label}: {value}" for label, value in reasons)
 
     if watch_candidates:
         candidates_text = "\\n".join(f"• {item}" for item in watch_candidates[:10])
         if len(watch_candidates) > 10:
-            candidates_text += f"\\n• ...and {len(watch_candidates)-10} more watch-only candidate(s)"
+            candidates_text += f"\\n• ...and {len(watch_candidates)-10} more"
         watch_note = (
             f"{btc_regime_reason}\\n"
-            "Watchlist entries are early candidates only—not buy signals. Wait for strict confirmation and check news/token risks."
+            "These are unconfirmed monitoring candidates—not buy signals. Wait for strict confirmation and check news/token risks."
             if not btc_regime_ok else
             "These candidates did not meet every strict confirmation condition. Watchlist only—not buy signals."
         )
     else:
-        candidates_text = "No coins qualified for the watchlist this scan."
-        watch_note = "Do not force a pick. A blank watchlist means no candidate passed even the relaxed watchlist filters."
+        # Never fabricate a technically qualified watchlist candidate. To ensure
+        # the report still names something to keep an eye on, show the highest
+        # 24h-quote-volume non-BTC asset in the scanned universe as a MARKET
+        # MONITOR ONLY, explicitly stating that it failed/was not qualified.
+        fallback = next((item for item in u if item[1] != "BTCUSDT"), None)
+        if fallback:
+            fq, fs, fch, fp = fallback
+            candidates_text = (
+                f"• {fs} | MARKET MONITOR ONLY (not technically qualified) | "
+                f"price {fp:.8g} USDT | 24h change {fch:+.2f}% | "
+                f"24h quote volume {fq:,.0f} USDT"
+            )
+            watch_note = (
+                "No coin passed the relaxed technical watchlist filters. This named asset is shown only as a liquid market reference; "
+                "it is NOT a qualified candidate, recommendation, or buy signal. Do not trade it based on this report."
+            )
+        else:
+            candidates_text = "• No eligible non-BTC USDT spot pair was available to name this scan."
+            watch_note = "No candidate qualified. Do not force a pick."
 
-    note = "No automatic orders are placed. A watchlist candidate is not a prediction or guarantee of a winning trade."
+    note = "No automatic orders are placed. Nothing in this report predicts or guarantees a winning trade."
     report = (
-        f"{summary}\\nPairs considered: {stats['considered']}\\n{detail}"
-        f"\\n\\n👀 WATCHLIST — potential candidates to monitor\\n{candidates_text}"
-        f"\\n\\n{watch_note}\\n{note}"
+        f"{summary}\\n\\n"
+        f"📊 SCAN DIAGNOSTICS\\n{detail}\\n\\n"
+        f"👀 WATCHLIST / MARKET MONITOR\\n{candidates_text}\\n\\n"
+        f"{watch_note}\\n{note}"
     )
     print(report)
     send(report)
