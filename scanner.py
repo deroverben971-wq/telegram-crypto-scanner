@@ -121,6 +121,65 @@ def rsi(a,n=14):
     ag=sum(g[:n])/n; al=sum(l[:n])/n
     for i in range(n,len(d)):ag=((n-1)*ag+g[i])/n; al=((n-1)*al+l[i])/n
     return 100 if al==0 and ag>0 else 50 if al==0 else 100-100/(1+ag/al)
+
+def atr(candles_rows, n=14):
+    """Average True Range as a price-unit volatility measure; informational only."""
+    if len(candles_rows) < n + 1:
+        return None
+    tr=[]
+    for i in range(1, len(candles_rows)):
+        cur, prev = candles_rows[i], candles_rows[i-1]
+        tr.append(max(cur["high"]-cur["low"], abs(cur["high"]-prev["close"]), abs(cur["low"]-prev["close"])))
+    if len(tr) < n:
+        return None
+    value=sum(tr[:n])/n
+    for x in tr[n:]:
+        value=((n-1)*value+x)/n
+    return value
+
+def macd(values, fast=12, slow=26, signal=9):
+    """Return latest MACD line, signal line, and histogram; informational only."""
+    if len(values) < slow + signal:
+        return None
+    line=[]
+    for i in range(slow-1, len(values)):
+        fast_value=ema(values[:i+1], fast)
+        slow_value=ema(values[:i+1], slow)
+        if fast_value is not None and slow_value is not None:
+            line.append(fast_value-slow_value)
+    if len(line) < signal:
+        return None
+    signal_value=ema(line, signal)
+    return (line[-1], signal_value, line[-1]-signal_value) if signal_value is not None else None
+
+def adx(candles_rows, n=14):
+    """Wilder ADX trend-strength estimate (0-100), not a direction predictor."""
+    if len(candles_rows) < 2*n + 1:
+        return None
+    plus_dm=[]; minus_dm=[]; true_ranges=[]
+    for i in range(1, len(candles_rows)):
+        cur, prev = candles_rows[i], candles_rows[i-1]
+        up=cur["high"]-prev["high"]
+        down=prev["low"]-cur["low"]
+        plus_dm.append(up if up > down and up > 0 else 0.0)
+        minus_dm.append(down if down > up and down > 0 else 0.0)
+        true_ranges.append(max(cur["high"]-cur["low"], abs(cur["high"]-prev["close"]), abs(cur["low"]-prev["close"])))
+    tr=sum(true_ranges[:n]); plus=sum(plus_dm[:n]); minus=sum(minus_dm[:n]); dx=[]
+    for i in range(n, len(true_ranges)):
+        tr=tr-tr/n+true_ranges[i]
+        plus=plus-plus/n+plus_dm[i]
+        minus=minus-minus/n+minus_dm[i]
+        if tr <= 0:
+            dx.append(0.0); continue
+        pdi=100*plus/tr; mdi=100*minus/tr
+        dx.append(100*abs(pdi-mdi)/(pdi+mdi) if pdi+mdi else 0.0)
+    if len(dx) < n:
+        return None
+    value=sum(dx[:n])/n
+    for x in dx[n:]:
+        value=((n-1)*value+x)/n
+    return value
+
 def relative_strength(asset, benchmark, hours=24):
     """Return asset minus benchmark return over the same closed-candle window, in pp."""
     if not asset or not benchmark:
@@ -304,6 +363,15 @@ def scan():
             # Compare equal 24-hour windows using closed candles, not rolling ticker
             # percentages that can have slightly different observation timestamps.
             rs=relative_strength(h1,btc)
+            # Widely used additional indicators are reported for evaluation only.
+            # Do not gate alerts on them until forward/out-of-sample evidence supports it.
+            adx_value=adx(h1)
+            atr_value=atr(h1)
+            atr_pct=(atr_value/a[-1]*100) if atr_value is not None and a[-1] > 0 else None
+            macd_values=macd(a)
+            macd_text=(f"MACD hist {macd_values[2]:+.6g} ({'bullish' if macd_values[2] > 0 else 'non-bullish'})" if macd_values else "MACD unavailable")
+            adx_text=(f"ADX(14) {adx_value:.1f}" if adx_value is not None else "ADX unavailable")
+            atr_text=(f"ATR(14) {atr_pct:.2f}% of price" if atr_pct is not None else "ATR unavailable")
             if rs is None:
                 stats["insufficient_history"]+=1; continue
             strict_momentum = (rr is not None and 52<=rr<=68 and 0<=br<=1.2 and vr>=1.3 and rs>=1.5 and close_location>=.65)
@@ -325,7 +393,7 @@ def scan():
                 stats["stop_risk"]+=1; continue
             entry_ref,target=levels["entry_reference"],levels["target"]
             tier = "CONFIRMED TECHNICAL SCREEN" if is_confirmed else "EARLY WATCHLIST — RELAXED FILTERS"
-            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             # Log every qualifying technical setup, including BTC-gated watch-only
             # candidates, so evaluation is not conditioned on alert delivery.
