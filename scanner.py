@@ -313,7 +313,8 @@ def scan():
         try:q=float(t["quoteVolume"]); ch=float(t["priceChangePercent"]); p=float(t["lastPrice"])
         except (ValueError,TypeError,KeyError):continue
         if eligible_live_symbol(s, valid) and q>=3000000 and p>0:u.append((q,s,ch,p))
-    u=sorted(u,reverse=True)[:60]
+    u=sorted(u,reverse=True)
+    print(f"Eligible USDT spot pairs meeting the liquidity filter: {len(u)} (no top-60 cap)")
     btc=candles("BTCUSDT","1h"); btc4=candles("BTCUSDT","4h"); btcd=candles("BTCUSDT","1d")
     btc_regime_ok = False
     btc_regime_reason = "BTC market-regime unavailable; candidates are watch-only."
@@ -351,7 +352,7 @@ def scan():
             pass
     update_paper_marks(paper_state, int(time.time()*1000), paper_quotes)
     save_paper_state(paper_state)
-    stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0,"watch_only":0}
+    stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0,"watch_only":0,"alert_cap_suppressed":0}
     for q,s,ch,p in u:
         if s=="BTCUSDT": continue
         stats["considered"]+=1
@@ -427,11 +428,15 @@ def scan():
             )
             save_paper_state(paper_state)
             if is_confirmed and btc_regime_ok:
-                send(msg)
-                state["alerts"][s]=now
-                tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE)
-                count+=1
-                if count>=3:break
+                if count < 3:
+                    send(msg)
+                    state["alerts"][s]=now
+                    tmp=STATE.with_suffix(".tmp");tmp.write_text(json.dumps(state,allow_nan=False));tmp.replace(STATE)
+                    count+=1
+                else:
+                    # Continue scanning the full universe, but limit Telegram signal
+                    # messages per run to avoid flooding the user.
+                    stats["alert_cap_suppressed"]+=1
             else:
                 # Relaxed candidates and BTC-gated candidates are watch-only.
                 watch_candidates.append(f"{s} | {tier} | price {p:.8g} USDT | RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | RS vs BTC {rs:+.2f} pp | spread {book['spread_pct']:.3f}%")
