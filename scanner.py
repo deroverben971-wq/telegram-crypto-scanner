@@ -457,14 +457,14 @@ def scan():
         ("Passed technical filters", stats["qualified"]),
         ("Watch-only technical candidates", stats["watch_only"]),
     ]
-    detail = "\\n".join(f"• {label}: {value}" for label, value in reasons)
+    detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
 
     if watch_candidates:
-        candidates_text = "\\n".join(f"• {item}" for item in watch_candidates[:10])
+        candidates_text = "\n".join(f"• {item}" for item in watch_candidates[:10])
         if len(watch_candidates) > 10:
-            candidates_text += f"\\n• ...and {len(watch_candidates)-10} more"
+            candidates_text += f"\n• ...and {len(watch_candidates)-10} more"
         watch_note = (
-            f"{btc_regime_reason}\\n"
+            f"{btc_regime_reason}\n"
             "These are unconfirmed monitoring candidates—not buy signals. Wait for strict confirmation and check news/token risks."
             if not btc_regime_ok else
             "These candidates did not meet every strict confirmation condition. Watchlist only—not buy signals."
@@ -492,10 +492,10 @@ def scan():
 
     note = "No automatic orders are placed. Nothing in this report predicts or guarantees a winning trade."
     report = (
-        f"{summary}\\n\\n"
-        f"📊 SCAN DIAGNOSTICS\\n{detail}\\n\\n"
-        f"👀 WATCHLIST / MARKET MONITOR\\n{candidates_text}\\n\\n"
-        f"{watch_note}\\n{note}"
+        f"{summary}\n\n"
+        f"📊 SCAN DIAGNOSTICS\n{detail}\n\n"
+        f"👀 WATCHLIST / MARKET MONITOR\n{candidates_text}\n\n"
+        f"{watch_note}\n{note}"
     )
     print(report)
     send(report)
