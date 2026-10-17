@@ -137,6 +137,19 @@ def atr(candles_rows, n=14):
         value=((n-1)*value+x)/n
     return value
 
+
+def bollinger(values, n=20, deviations=2):
+    """Return middle, lower, upper bands and normalized band position."""
+    if len(values) < n:
+        return None
+    window=values[-n:]
+    mean=sum(window)/n
+    variance=sum((x-mean)**2 for x in window)/n
+    sd=math.sqrt(variance)
+    lower, upper = mean-deviations*sd, mean+deviations*sd
+    position=(values[-1]-lower)/(upper-lower) if upper>lower else None
+    return mean, lower, upper, position
+
 def macd(values, fast=12, slow=26, signal=9):
     """Return latest MACD line, signal line, and histogram; informational only."""
     if len(values) < slow + signal:
@@ -369,6 +382,17 @@ def scan():
             atr_value=atr(h1)
             atr_pct=(atr_value/a[-1]*100) if atr_value is not None and a[-1] > 0 else None
             macd_values=macd(a)
+            bb_values=bollinger(a)
+            bb_text=(f"BB(20,2σ) position {bb_values[3]:.2f}" if bb_values and bb_values[3] is not None else "BB unavailable")
+            # Strategy-family labels are diagnostic only: no new family can trigger alerts until validated.
+            strategy_tags=[]
+            if trend_1h and trend_4h and trend_1d and macd_values and macd_values[2] > 0:
+                strategy_tags.append("trend/momentum alignment")
+            if br >= 0 and vr >= 1.3 and close_location >= .65:
+                strategy_tags.append("volume breakout candidate")
+            if bb_values and rr is not None and rr <= 35 and a[-1] <= bb_values[1]:
+                strategy_tags.append("BB+RSI mean-reversion watch (counter-trend risk)")
+            strategy_text=", ".join(strategy_tags) if strategy_tags else "no additional strategy-family confluence" 
             macd_text=(f"MACD hist {macd_values[2]:+.6g} ({'bullish' if macd_values[2] > 0 else 'non-bullish'})" if macd_values else "MACD unavailable")
             adx_text=(f"ADX(14) {adx_value:.1f}" if adx_value is not None else "ADX unavailable")
             atr_text=(f"ATR(14) {atr_pct:.2f}% of price" if atr_pct is not None else "ATR unavailable")
@@ -393,7 +417,7 @@ def scan():
                 stats["stop_risk"]+=1; continue
             entry_ref,target=levels["entry_reference"],levels["target"]
             tier = "CONFIRMED TECHNICAL SCREEN" if is_confirmed else "EARLY WATCHLIST — RELAXED FILTERS"
-            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}; {bb_text}\nStrategy-family diagnostics (paper research only): {strategy_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             # Log every qualifying technical setup, including BTC-gated watch-only
             # candidates, so evaluation is not conditioned on alert delivery.
