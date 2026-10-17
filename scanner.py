@@ -463,13 +463,13 @@ def scan():
     ]
     detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
     if watch_candidates:
-        candidates_text = "\n".join(f"• {item}" for item in watch_candidates[:3])
-        if len(watch_candidates) > 3:
-            candidates_text += f"\n• ...and {len(watch_candidates)-3} more watch-only candidate(s)"
+        candidates_text = "\n".join(f"• {item}" for item in watch_candidates[:10])
+        if len(watch_candidates) > 10:
+            candidates_text += f"\n• ...and {len(watch_candidates)-10} more watch-only candidate(s)"
         note = (f"{btc_regime_reason}\nThese are watch-only, not bullish alerts or buy recommendations."
                 if not btc_regime_ok else
                 "These candidates failed one or more strict confirmation conditions. They are watch-only, not bullish alerts or buy recommendations.")
-        report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\nWatch-only candidates (up to 3 shown):\n{candidates_text}\n\n{note}\nNo orders placed."
+        report = f"{summary}\nPairs considered: {stats['considered']}\n{detail}\n\nWatchlist coins (up to 10 shown; watch-only, not buy signals):\n{candidates_text}\n\n{note}\nNo orders placed."
     else:
         note = ("At least one setup passed the technical screen; this is not a buy recommendation."
                 if count else
