@@ -150,10 +150,17 @@ class ForwardPaperTrackingTests(unittest.TestCase):
         self.assertLess(mark["net_return_pct"], 1.0)
         self.assertNotIn("4h", signal["marks"])
 
-    def test_missing_quote_does_not_fabricate_mark(self):
+    def test_missing_quote_waits_during_observation_tolerance(self):
         scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
-        scanner.update_paper_marks(self.state, 1_000_000 + 24*3_600_000, {})
+        scanner.update_paper_marks(self.state, 1_000_000 + 3_600_000 + 30*60_000, {})
         self.assertEqual(self.state["signals"][0]["marks"], {})
+
+    def test_missing_quote_is_explicitly_marked_after_tolerance(self):
+        scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
+        scanner.update_paper_marks(self.state, 1_000_000 + 2*3_600_000 + 1, {})
+        mark = self.state["signals"][0]["marks"]["1h"]
+        self.assertTrue(mark["missed"])
+        self.assertNotIn("net_return_pct", mark)
 
 
     def test_late_snapshot_is_flagged_instead_of_fabricating_horizon_return(self):
