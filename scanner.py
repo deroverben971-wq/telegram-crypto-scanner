@@ -25,7 +25,7 @@ def save_paper_state(state):
     tmp.write_text(json.dumps(state, allow_nan=False), encoding="utf-8")
     tmp.replace(PAPER_STATE)
 
-def record_paper_signal(state, symbol, signal_close_ms, entry_ask, stop, target, spread_pct):
+def record_paper_signal(state, symbol, signal_close_ms, entry_ask, stop, target, spread_pct, tier="research"):
     """Record one technical-screen event per symbol and closed 1h candle."""
     try:
         entry_ask, stop, target, spread_pct = map(float, (entry_ask, stop, target, spread_pct))
@@ -39,7 +39,7 @@ def record_paper_signal(state, symbol, signal_close_ms, entry_ask, stop, target,
         state["signals"].append({
             "key": key, "symbol": symbol, "signal_close_ms": int(signal_close_ms),
             "entry_ask": entry_ask, "stop": stop, "target": target,
-            "entry_spread_pct": spread_pct, "marks": {}
+            "entry_spread_pct": spread_pct, "tier": str(tier), "marks": {}
         })
         return True
     except (TypeError, ValueError, OverflowError):
@@ -96,6 +96,26 @@ def update_paper_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.00
     state["signals"] = still_open
     state["completed"] = completed
     return state
+
+def paper_performance_summary(state):
+    """Summarize observed forward-paper marks without treating missed marks as returns."""
+    signals = list(state.get("signals", [])) + list(state.get("completed", []))
+    horizons = ("1h", "4h", "24h", "72h")
+    lines = ["FORWARD PAPER TRACKING — observational only; not actual fills"]
+    lines.append(f"Signals tracked: {len(signals)} total; {len(state.get('signals', []))} in progress; {len(state.get('completed', []))} completed")
+    for horizon in horizons:
+        marks = [s.get("marks", {}).get(horizon, {}) for s in signals if horizon in s.get("marks", {})]
+        valid = [m for m in marks if not m.get("missed") and isinstance(m.get("net_return_pct"), (int, float)) and math.isfinite(m["net_return_pct"])]
+        missed = sum(1 for m in marks if m.get("missed"))
+        if valid:
+            wins = sum(1 for m in valid if m["net_return_pct"] > 0)
+            avg = sum(m["net_return_pct"] for m in valid) / len(valid)
+            lines.append(f"• {horizon}: n={len(valid)}, positive={wins}/{len(valid)} ({wins/len(valid)*100:.1f}%), mean net mark={avg:+.2f}%, missed={missed}")
+        else:
+            lines.append(f"• {horizon}: no valid observations yet; missed={missed}")
+    lines.append("Quote-based estimates with modeled costs, not verified fills. Small samples are inconclusive.")
+    return "\n".join(lines)
+
 
 def get(path,params=None):
     for i in range(3):
@@ -478,13 +498,14 @@ def scan():
                 stats["stop_risk"]+=1; continue
             entry_ref,target=levels["entry_reference"],levels["target"]
             tier = "CONFIRMED TECHNICAL SCREEN" if is_confirmed else "EARLY WATCHLIST — RELAXED FILTERS"
-            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nMarket regime (diagnostic only): {regime_text}; trend structure: {structure_text}\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}; {bb_text}\nStrategy-family diagnostics (paper research only): {strategy_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            msg=(f"⚠️ {tier} — PAPER RESEARCH ONLY; NOT a buy signal\nEvaluation horizons: 1h / 4h / 24h / 72h\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nMarket regime (diagnostic only): {regime_text}; trend structure: {structure_text}\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}; {bb_text}\nStrategy-family diagnostics (paper research only): {strategy_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             # Log every qualifying technical setup, including BTC-gated watch-only
             # candidates, so evaluation is not conditioned on alert delivery.
             record_paper_signal(
                 paper_state, s, h1[-1]["time"] + 3600000, entry_ref, stop,
-                target, book["spread_pct"]
+                target, book["spread_pct"],
+                tier="strict" if is_confirmed else "relaxed_watch"
             )
             save_paper_state(paper_state)
             if is_confirmed and btc_regime_ok:
@@ -560,7 +581,7 @@ def scan():
         f"{summary}\n\n"
         f"📊 SCAN DIAGNOSTICS\n{detail}\n\n"
         f"👀 WATCHLIST / MARKET MONITOR\n{candidates_text}\n\n"
-        f"{watch_note}\n{note}"
+        f"{watch_note}\n\n{paper_performance_summary(paper_state)}\n\n{note}"
     )
     print(report)
     send(report)
