@@ -137,8 +137,8 @@ def backtest_symbol(symbol, rows, btc_rows, tier="strict"):
         cd = [x["close"] for x in d1[max(0,d1i-79):d1i+1]]
         if min(len(c1),len(c4),len(cd)) < 50:
             i += 1; continue
-        # Higher-timeframe inputs must be contiguous too. A gap can otherwise
-        # make an EMA appear to cover a shorter/irregular calendar window.        h4_window = h4[max(0, h4i-49):h4i+1]
+        # Higher-timeframe inputs must be contiguous too. A gap can otherwise        # make an EMA appear to cover a shorter/irregular calendar window.
+        h4_window = h4[max(0, h4i-49):h4i+1]
         d1_window = d1[max(0, d1i-49):d1i+1]
         if (len(h4_window) < 50 or len(d1_window) < 50
                 or any(h4_window[k]["time"]-h4_window[k-1]["time"] != 4*3600000 for k in range(1,len(h4_window)))
@@ -277,8 +277,7 @@ def simulate_portfolio(trades, starting_equity=1000.0, risk_fraction=0.005, max_
         max_dd = max(max_dd, (peak - equity) / peak if peak else 0.0)
     return {"ending_equity": equity, "net_return_pct": (equity / starting_equity - 1) * 100,
             "max_drawdown_pct": max_dd * 100, "trades_taken": taken, "trades_skipped": skipped,
-            "max_concurrent_positions": max_concurrent_positions,
-            "max_open_risk_cash": max_open_risk_cash,
+            "max_concurrent_positions": max_concurrent_positions,            "max_open_risk_cash": max_open_risk_cash,
             "drawdown_method": "closed-trade realized equity only; excludes unrealized intratrade drawdown"}
 
 def period_summary(trades, label):
