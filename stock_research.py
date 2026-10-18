@@ -1,14 +1,11 @@
-"""Paper-research-only stock screening primitives.
-
-This module deliberately contains no broker/order code. Provider adapters must
-supply timestamped, split-adjusted daily OHLCV bars before a market can be enabled.
-"""
+"""Paper-research-only stock screening and candidate ranking; never places orders."""
 from __future__ import annotations
 
 import math
 from typing import Iterable
 
 MIN_DAILY_BARS = 220
+WATCHLIST_MIN_CHECKS = 3
 
 
 def ema(values: list[float], period: int) -> float | None:
@@ -22,11 +19,10 @@ def ema(values: list[float], period: int) -> float | None:
 
 
 def evaluate_daily_bars(bars: Iterable[dict]) -> dict:
-    """Evaluate a conservative daily trend setup; return diagnostics, never orders.
+    """Rank a stock from 0-5 checks while preserving strict confirmation.
 
-    Each bar must contain date, open, high, low, close, volume. Bars must be
-    chronological and already adjusted consistently for splits. Dividends and
-    transaction costs are not modeled here.
+    Input bars must be chronological, split-adjusted daily OHLCV. Three or
+    four checks creates a WATCHLIST_CANDIDATE, never a confirmed setup.
     """
     rows = list(bars)
     if len(rows) < MIN_DAILY_BARS:
@@ -47,9 +43,7 @@ def evaluate_daily_bars(bars: Iterable[dict]) -> dict:
 
     closes = [float(x["close"]) for x in rows]
     volumes = [float(x["volume"]) for x in rows]
-    fast = ema(closes, 20)
-    medium = ema(closes, 50)
-    slow = ema(closes, 200)
+    fast, medium, slow = ema(closes, 20), ema(closes, 50), ema(closes, 200)
     latest = closes[-1]
     average_volume = sum(volumes[-20:-1]) / 19
     volume_ratio = volumes[-1] / average_volume if average_volume > 0 else None
@@ -63,9 +57,13 @@ def evaluate_daily_bars(bars: Iterable[dict]) -> dict:
         "volume_confirmation": volume_ratio is not None and volume_ratio >= 1.2,
     }
     passed = sum(checks.values())
-    status = "STRICT_RESEARCH_CANDIDATE" if all(checks.values()) else "NO_QUALIFIED_SETUP"
+    status = ("STRICT_RESEARCH_CANDIDATE" if passed == len(checks)
+              else "WATCHLIST_CANDIDATE" if passed >= WATCHLIST_MIN_CHECKS
+              else "NO_QUALIFIED_SETUP")
+    missing = [name for name, ok in checks.items() if not ok]
     return {
         "status": status,
+        "score": passed * 20,
         "date": str(rows[-1]["date"]),
         "close": latest,
         "ema20": fast,
@@ -76,5 +74,6 @@ def evaluate_daily_bars(bars: Iterable[dict]) -> dict:
         "checks": checks,
         "checks_passed": passed,
         "checks_total": len(checks),
-        "note": "Daily-bar screen only; not a forecast, recommendation, or executable fill estimate.",
+        "missing_confirmations": missing,
+        "note": "Daily-bar research screen only; scores rank rule confluence, not win probability or expected return.",
     }
