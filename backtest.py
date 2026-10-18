@@ -107,7 +107,8 @@ def btc_regime_aligned(btc_rows, btc_times, btc_h4, btc_h4_times, btc_d1, btc_d1
             and scanner.ema(cd,20) > scanner.ema(cd,50) and cd[-1] > scanner.ema(cd,20))
 
 
-def backtest_symbol(symbol, rows, btc_rows):
+def backtest_symbol(symbol, rows, btc_rows, tier="strict"):
+    """Backtest strict baseline or a clearly labeled relaxed research tier."""
     # Index BTC closes by hourly candle timestamp for relative-strength comparison.
     btc_by_time = {r["time"]: r["close"] for r in btc_rows}
     btc_h4, btc_d1 = aggregate(btc_rows, 4), aggregate(btc_rows, 24)
@@ -137,8 +138,7 @@ def backtest_symbol(symbol, rows, btc_rows):
         if min(len(c1),len(c4),len(cd)) < 50:
             i += 1; continue
         # Higher-timeframe inputs must be contiguous too. A gap can otherwise
-        # make an EMA appear to cover a shorter/irregular calendar window.
-        h4_window = h4[max(0, h4i-49):h4i+1]
+        # make an EMA appear to cover a shorter/irregular calendar window.        h4_window = h4[max(0, h4i-49):h4i+1]
         d1_window = d1[max(0, d1i-49):d1i+1]
         if (len(h4_window) < 50 or len(d1_window) < 50
                 or any(h4_window[k]["time"]-h4_window[k-1]["time"] != 4*3600000 for k in range(1,len(h4_window)))
@@ -167,11 +167,22 @@ def backtest_symbol(symbol, rows, btc_rows):
         if btc_now is not None and btc_prev is not None and btc_prev > 0 and asset_prev is not None and asset_prev > 0:
             rs = ((r["close"] / asset_prev - 1) -
                   (btc_now / btc_prev - 1)) * 100
-        trend = (scanner.ema(c1,20) > scanner.ema(c1,50) and r["close"] > scanner.ema(c1,20)
-                 and scanner.ema(c4,20) > scanner.ema(c4,50) and c4[-1] > scanner.ema(c4,20)
-                 and scanner.ema(cd,20) > scanner.ema(cd,50) and cd[-1] > scanner.ema(cd,20))
-        if not (trend and rsi is not None and 52 <= rsi <= 68 and 0 <= breakout <= 1.2
-                and vol_ratio >= 1.3 and rs >= 1.5 and close_location >= 0.65):
+        trend_1h4h = (scanner.ema(c1,20) > scanner.ema(c1,50) and r["close"] > scanner.ema(c1,20)
+                      and scanner.ema(c4,20) > scanner.ema(c4,50) and c4[-1] > scanner.ema(c4,20))
+        trend_daily = scanner.ema(cd,20) > scanner.ema(cd,50) and cd[-1] > scanner.ema(cd,20)
+        if tier == "strict":
+            passes = (trend_1h4h and trend_daily and rsi is not None and 52 <= rsi <= 68
+                      and 0 <= breakout <= 1.2 and vol_ratio >= 1.3 and rs >= 1.5
+                      and close_location >= 0.65)
+        elif tier == "relaxed":
+            # Research-only candidate: 1h/4h trend, looser momentum/volume/RS filters.
+            # Daily trend is recorded by tier comparison but not required here.
+            passes = (trend_1h4h and rsi is not None and 48 <= rsi <= 72
+                      and 0 <= breakout <= 1.8 and vol_ratio >= 1.1 and rs >= 0.0
+                      and close_location >= 0.55)
+        else:
+            raise ValueError("tier must be 'strict' or 'relaxed'")
+        if not passes:
             i += 1; continue
         entry_i = i + 1
         # Live scanner rejects a scan price that has drifted >0.75% from the
@@ -278,7 +289,6 @@ def period_summary(trades, label):
     pf = pos / neg if neg else (float("inf") if pos else 0.0)
     avg = sum(float(t["net_return_pct"]) for t in trades) / n if n else 0.0
     print(f"{label}: trades={n}, win_rate={(wins/n*100 if n else 0):.2f}%, trade_PF={pf:.3f}, avg_net_trade={avg:.3f}%")
-
 def eligible_backtest_symbol(symbol, valid_symbols, excluded_bases=None):
     """Filter stablecoin, leveraged, and known tokenized-equity symbols from the research universe."""
     excluded = excluded_bases or set()
@@ -352,13 +362,17 @@ def main():
     btc = all_rows.get("BTCUSDT",[])
     if not btc:
         raise SystemExit("Cannot backtest: BTCUSDT historical candles unavailable.")
-    results = []
+    results, relaxed_results = [], []
     for sym, rows in all_rows.items():
         if sym == "BTCUSDT": continue
-        results.extend(backtest_symbol(sym,rows,btc))
+        results.extend(backtest_symbol(sym,rows,btc,tier="strict"))
+        relaxed_results.extend(backtest_symbol(sym,rows,btc,tier="relaxed"))
     fields = ["symbol","entry_time","exit_time","entry","exit","reason","gross_return_pct","net_return_pct","win","bars_held","risk_pct"]
     with OUT.open("w",newline="",encoding="utf-8") as f:
         w = csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(results)
+    relaxed_out = OUT.with_name("backtest_relaxed_results.csv")
+    with relaxed_out.open("w",newline="",encoding="utf-8") as f:
+        w = csv.DictWriter(f,fieldnames=fields); w.writeheader(); w.writerows(relaxed_results)
     n = len(results)
     wins = sum(t["win"] for t in results)
     gross_wins = [t["net_return_pct"] for t in results if t["net_return_pct"] > 0]
@@ -404,6 +418,19 @@ def main():
         p = simulate_portfolio(adjusted, starting_equity=1000.0, risk_fraction=0.005, max_positions=3)
         print(f"Fee {fee*100:.2f}% per side: portfolio return={p['net_return_pct']:.2f}%, max drawdown={p['max_drawdown_pct']:.2f}%, trades={p['trades_taken']}")
     print(f"CSV saved to: {OUT}")
+    print(f"Relaxed research CSV saved to: {relaxed_out}")
+    print("\n=== STRICT VS RELAXED COMPARISON ===")
+    for label, sample in (("Strict baseline", results), ("Relaxed research tier", relaxed_results)):
+        period_summary(sample, label + " overall")
+        _, _, sample_holdout = chronological_splits(sample, start, end_ms)
+        period_summary(sample_holdout, label + " holdout")
+        if len(sample_holdout) < 30:
+            print(f"{label}: NOT VALIDATED (fewer than 30 holdout trades)")
+        else:
+            wins_net = sum(float(t["net_return_pct"]) for t in sample_holdout if float(t["net_return_pct"]) > 0)
+            losses_net = -sum(float(t["net_return_pct"]) for t in sample_holdout if float(t["net_return_pct"]) < 0)
+            pf_net = wins_net / losses_net if losses_net else (float("inf") if wins_net else 0.0)
+            print(f"{label}: holdout net PF={pf_net:.3f}; aggregate net trade return={sum(float(t['net_return_pct']) for t in sample_holdout):.2f}%")
     print("\nIMPORTANT: current top-volume universe creates survivorship bias; order-book filters, historic delistings, token news, and true fill/slippage are not reconstructed. Results are exploratory, not proof of future profitability.")
 if __name__ == "__main__":
     main()
