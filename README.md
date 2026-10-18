@@ -37,11 +37,16 @@ The backtest uses up to 50 USDT spot pairs selected by their *current* 24-hour l
 4. Select `test_telegram=true` to send a test message first. If successful, run again with `false` to scan.
 5. Review workflow logs for errors. Scheduled runs target every 30 minutes, but GitHub Actions may delay scheduled jobs, and public-repository usage limits/availability may apply.
 
+## GitHub-only persistence setup
+- The scanner workflow declares `contents: write` so GitHub Actions can commit the state ledger to the dedicated `paper-state` branch. In repository **Settings → Actions → General → Workflow permissions**, allow workflows to read and write repository contents if organization/repository policy requires this setting. Never add a personal access token to the source code.
+- The first successful workflow run creates the `paper-state` branch. Later runs restore its JSON state and update it. Check the workflow log for the `Persist state to paper-state branch` step; a failed push means persistence was not confirmed.
+- The branch stores tracking/cooldown state only. On a public repository, this JSON is public; it should contain no credentials or private information.
+
 ## Important limitations and acceptance criteria
 - This project is an experimental screener, not a proven profitable strategy. Earlier results were weak/negative, including a poor final holdout; no durable edge has been established. The expanded backtest must finish before its new results can be assessed.
 - The validation report's statistical sub-gate is a screening rule, not a guarantee. Overall status remains NOT VALIDATED until survivorship bias and other data limitations are addressed and independent forward paper validation supports the result.
 - Unit tests validate only tested software behavior. They do not prove live API reliability, Telegram delivery, or profitability.
-- The GitHub Actions runner is temporary. Cooldown and paper-tracking state use the Actions cache, which is best-effort rather than a durable database; state loss can allow repeated alerts or interrupt history. Scheduled jobs can be delayed or skipped, so a 30-minute cron is a target cadence, not a guaranteed execution SLA. Binance and Telegram availability, API quotas, GitHub Actions quotas, and network failures remain external limits.
+- The workflow now restores `.paper_state.json` and `.state.json` from a dedicated `paper-state` branch and commits the latest state there after each run; Actions cache remains only a fallback. This is more durable than cache alone, but it is still a small JSON ledger, not a transactional database. It depends on the workflow having repository contents write permission, successful Git pushes, and non-overlapping runs. The state branch is force-updated and should contain only these state files; do not store secrets there. Back up the branch periodically. Scheduled jobs can be delayed or skipped, so a 30-minute cron is a target cadence, not a guaranteed execution SLA. Binance and Telegram availability, API quotas, GitHub Actions quotas, and network failures remain external limits.
 - Stop and target levels are illustrative, not orders; live alerts use the current ask as a more conservative entry reference, but a snapshot order book is not a fill guarantee. Gaps, slippage, fees, spread changes, and liquidity can change outcomes.
 - Keep the scanner alert-only and use paper tracking. Never interpret a signal as a guarantee or risk money based on a backtest alone.
 
