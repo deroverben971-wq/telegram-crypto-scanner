@@ -537,7 +537,29 @@ def scan():
                     stats["alert_cap_suppressed"]+=1
             else:
                 # Relaxed candidates and BTC-gated candidates are watch-only.
-                watch_candidates.append(f"{s} | {tier} | price {p:.8g} USDT | RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | RS vs BTC {rs:+.2f} pp | spread {book['spread_pct']:.3f}%")
+                score_checks = [
+                    trend_1h, trend_4h, trend_1d,
+                    48 <= rr <= 65,
+                    0 <= br <= 1.2,
+                    vr >= 1.3,
+                    rs >= 1.5,
+                    close_location >= .65,
+                    book["spread_pct"] <= .10,
+                ]
+                score = round(sum(score_checks) / len(score_checks) * 100)
+                missing = [label for label, ok in zip(
+                    ("1h trend", "4h trend", "daily trend", "RSI sweet spot",
+                     "not-overextended breakout", "volume expansion",
+                     "relative strength vs BTC", "strong candle close", "tight spread"),
+                    score_checks
+                ) if not ok]
+                watch_candidates.append((
+                    score,
+                    f"{s} | score {score}/100 | {tier} | price {p:.8g} USDT | "
+                    f"RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | "
+                    f"RS vs BTC {rs:+.2f} pp | spread {book['spread_pct']:.3f}% | "
+                    f"missing: {', '.join(missing) if missing else 'none'}"
+                ))
                 stats["watch_only"]+=1
         except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
@@ -563,7 +585,8 @@ def scan():
     detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
 
     if watch_candidates:
-        candidates_text = "\n".join(f"• {item}" for item in watch_candidates[:10])
+        watch_candidates.sort(key=lambda item: item[0], reverse=True)
+        candidates_text = "\n".join(f"• {item[1]}" for item in watch_candidates[:10])
         if len(watch_candidates) > 10:
             candidates_text += f"\n• ...and {len(watch_candidates)-10} more"
         watch_note = (
