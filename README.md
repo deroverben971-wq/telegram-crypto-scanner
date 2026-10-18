@@ -70,3 +70,13 @@ it does not claim to scan the complete US or Philippine exchanges yet.
 - Alpha Vantage's free allowance has historically been limited (commonly 25 requests/day); verify the current plan and endpoint terms before choosing it. A broad universe cannot be reliably scanned by making one request per ticker on a low-quota plan. PSE data may require a licensed provider or subscription.
 - Until both market data sources pass validation, no stock market should be reported as fully scanned. No stock alerts are wired into the live Telegram workflow yet; this prevents incomplete coverage from being mistaken for a full-market scan.
 - Keep all outputs observational and paper-only. Historical screening alone is not evidence of an edge; evaluate chronological holdouts and forward paper marks after provider integration.
+
+
+## Manual US stock research prototype (not part of the crypto alert loop)
+
+- Open **Actions → Stock paper research scan → Run workflow** to run a manually requested US daily-bar screen. It accepts up to 20 comma-separated symbols and uploads `stock_research_results.json` as an artifact.
+- It uses `stock_provider.py` and Alpha Vantage `TIME_SERIES_DAILY_ADJUSTED`, which Alpha Vantage documents as a **premium** endpoint. The workflow requires an `ALPHAVANTAGE_API_KEY` repository secret with the necessary entitlement. A free key should not be assumed to work for this endpoint. Check the provider's current plans and terms before paying.
+- The default symbol list is a small smoke-test universe, not a complete NYSE/Nasdaq universe. Each symbol is requested separately, so 7 symbols means at least 7 API requests. The scan is manual-only and sends no Telegram stock alerts.
+- This prototype is **US only**. It does not scan the Philippine Stock Exchange. PSE data requires a verified, appropriately licensed data source and coverage testing; do not treat a missing PSE integration as a scan with zero candidates.
+- The provider adapter fails closed on missing keys, rate-limit/entitlement messages, malformed data, and fewer than 220 valid daily bars. Price adjustment and volume conventions still need independent validation before interpreting performance.
+- No automated stock schedule or stock paper ledger has been enabled. The first milestone is to verify provider access and data quality, inspect the artifact, and pass unit tests. Only then should we design persistent forward paper tracking and any notification layer. The existing Binance workflow remains separate and unchanged.
