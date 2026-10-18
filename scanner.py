@@ -56,28 +56,33 @@ def update_paper_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.00
         raise ValueError("invalid paper-mark inputs")
     for signal in list(state["signals"]):
         quote = quotes.get(signal.get("symbol"))
-        if not isinstance(quote, dict):
-            continue
-        try:
-            bid, ask = float(quote["bid"]), float(quote["ask"])
-            if not all(math.isfinite(x) and x > 0 for x in (bid, ask)) or bid >= ask:
+        valid_quote = False
+        bid = ask = None
+        if isinstance(quote, dict):
+            try:
+                bid, ask = float(quote["bid"]), float(quote["ask"])
+                valid_quote = all(math.isfinite(x) and x > 0 for x in (bid, ask)) and bid < ask
+            except (KeyError, TypeError, ValueError, OverflowError):
+                valid_quote = False
+        for horizon, delta in PAPER_HORIZONS_MS.items():
+            due = signal["signal_close_ms"] + delta
+            if now_ms < due or horizon in signal["marks"]:
                 continue
-            for horizon, delta in PAPER_HORIZONS_MS.items():
-                due = signal["signal_close_ms"] + delta
-                if now_ms < due or horizon in signal["marks"]:
-                    continue
+            delay_ms = now_ms - due
+            # A missing/invalid quote must not leave a horizon pending forever.
+            # Wait through one horizon of tolerance, then explicitly record it missing.
+            if delay_ms > delta:
+                signal["marks"][horizon] = {
+                    "observed_ms": now_ms, "delay_ms": delay_ms,
+                    "missed": True,
+                    "reason": "no valid quote observed within horizon tolerance"
+                }
+                continue
+            if not valid_quote:
+                continue
+            try:
                 entry_cost = signal["entry_ask"] * (1 + fee_rate + slippage_rate)
                 exit_proceeds = bid * (1 - fee_rate - slippage_rate)
-                delay_ms = now_ms - due
-                # Never label a very late quote as if it were the intended horizon.
-                # With a 30-minute scan cadence, a 1h mark should be observed within
-                # one horizon; otherwise record a missed observation, not a fake return.
-                if delay_ms > delta:
-                    signal["marks"][horizon] = {
-                        "observed_ms": now_ms, "delay_ms": delay_ms,
-                        "missed": True, "reason": "no quote observed within horizon tolerance"
-                    }
-                    continue
                 net_pct = (exit_proceeds / entry_cost - 1) * 100
                 signal["marks"][horizon] = {
                     "observed_ms": now_ms, "delay_ms": delay_ms,
@@ -85,8 +90,8 @@ def update_paper_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.00
                     "stop_touched_by_snapshot": bid <= signal["stop"],
                     "target_touched_by_snapshot": bid >= signal["target"]
                 }
-        except (KeyError, TypeError, ValueError, OverflowError, ZeroDivisionError):
-            continue
+            except (TypeError, ValueError, OverflowError, ZeroDivisionError):
+                continue
     still_open, completed = [], state["completed"]
     for signal in state["signals"]:
         if len(signal.get("marks", {})) == len(PAPER_HORIZONS_MS):
@@ -118,16 +123,28 @@ def paper_performance_summary(state):
 
 
 def get(path,params=None):
+    """Request Binance data with bounded retries and respect server retry hints."""
     for i in range(3):
         try:
             r=S.get(BASE+path,params=params,timeout=(3,10))
             if r.status_code in (418,429) or r.status_code>=500:
-                if i<2: time.sleep(i+1)
-                continue
-            r.raise_for_status(); return r.json()
-        except (requests.RequestException,ValueError):
-            if i==2: raise RuntimeError("Binance request failed after retries") from None
-            time.sleep(i+1)
+                if i < 2:
+                    try:
+                        retry_after = float(r.headers.get("Retry-After", 0))
+                    except (TypeError, ValueError):
+                        retry_after = 0
+                    # Bound waiting to the workflow's execution budget; never hammer
+                    # an endpoint that is rate-limiting or temporarily unavailable.
+                    wait = min(20.0, max(retry_after, 2 ** i))
+                    time.sleep(wait)
+                    continue
+                raise RuntimeError(f"Binance temporarily unavailable (HTTP {r.status_code})")
+            r.raise_for_status()
+            return r.json()
+        except (requests.RequestException, ValueError):
+            if i == 2:
+                raise RuntimeError("Binance request failed after retries") from None
+            time.sleep(min(8.0, 2 ** i))
     raise RuntimeError("Binance request failed after retries")
 def ema(a,n):
     if len(a)<n:return None
