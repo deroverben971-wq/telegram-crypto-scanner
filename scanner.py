@@ -193,6 +193,62 @@ def adx(candles_rows, n=14):
         value=((n-1)*value+x)/n
     return value
 
+
+def market_regime(candles_rows, short_window=24, long_window=72):
+    """Describe recent volatility and normalized momentum; never a standalone signal."""
+    try:
+        closes = [float(x["close"]) for x in candles_rows]
+        if len(closes) < long_window + 2 or any(not math.isfinite(x) or x <= 0 for x in closes[-long_window-1:]):
+            return {"label": "unknown", "vol_ratio": None, "direction": "unknown"}
+        returns = [closes[i] / closes[i-1] - 1 for i in range(1, len(closes))]
+        short, long = returns[-short_window:], returns[-long_window:]
+        def stdev(values):
+            mean = sum(values) / len(values)
+            return math.sqrt(sum((x-mean)**2 for x in values) / max(1, len(values)-1))
+        short_vol, long_vol = stdev(short), stdev(long)
+        vol_ratio = short_vol / long_vol if long_vol > 0 else None
+        av = atr(candles_rows)
+        atr_pct = av / closes[-1] if av and closes[-1] > 0 else None
+        momentum = closes[-1] / closes[-1-short_window] - 1
+        norm_momentum = momentum / (atr_pct * math.sqrt(short_window)) if atr_pct and atr_pct > 0 else None
+        if vol_ratio is None:
+            label = "unknown"
+        elif vol_ratio >= 1.25:
+            label = "volatility expansion"
+        elif vol_ratio <= 0.75:
+            label = "volatility contraction"
+        else:
+            label = "normal volatility"
+        if norm_momentum is not None and norm_momentum >= 1:
+            direction = "positive momentum"
+        elif norm_momentum is not None and norm_momentum <= -1:
+            direction = "negative momentum"
+        else:
+            direction = "weak/mixed momentum"
+        return {"label": label, "vol_ratio": vol_ratio, "direction": direction,
+                "normalized_momentum": norm_momentum, "atr_pct": atr_pct}
+    except (KeyError, TypeError, ValueError, OverflowError, ZeroDivisionError):
+        return {"label": "unknown", "vol_ratio": None, "direction": "unknown"}
+
+
+def trend_structure(candles_rows):
+    """Describe EMA structure and ADX trend strength; not a price prediction."""
+    try:
+        closes = [float(x["close"]) for x in candles_rows]
+        fast, slow, strength = ema(closes, 20), ema(closes, 50), adx(candles_rows)
+        if fast is None or slow is None:
+            direction = "unknown"
+        elif closes[-1] > fast > slow:
+            direction = "uptrend"
+        elif closes[-1] < fast < slow:
+            direction = "downtrend"
+        else:
+            direction = "mixed/range"
+        strength_label = "trend strength elevated" if strength is not None and strength >= 25 else "trend strength weak/unclear" if strength is not None else "ADX unavailable"
+        return {"direction": direction, "adx": strength, "strength_label": strength_label}
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return {"direction": "unknown", "adx": None, "strength_label": "ADX unavailable"}
+
 def relative_strength(asset, benchmark, hours=24):
     """Return asset minus benchmark return over the same closed-candle window, in pp."""
     if not asset or not benchmark:
@@ -382,6 +438,8 @@ def scan():
             adx_value=adx(h1)
             atr_value=atr(h1)
             atr_pct=(atr_value/a[-1]*100) if atr_value is not None and a[-1] > 0 else None
+            regime=market_regime(h1)
+            structure=trend_structure(h1)
             macd_values=macd(a)
             bb_values=bollinger(a)
             bb_text=(f"BB(20,2σ) position {bb_values[3]:.2f}" if bb_values and bb_values[3] is not None else "BB unavailable")
@@ -397,6 +455,8 @@ def scan():
             macd_text=(f"MACD hist {macd_values[2]:+.6g} ({'bullish' if macd_values[2] > 0 else 'non-bullish'})" if macd_values else "MACD unavailable")
             adx_text=(f"ADX(14) {adx_value:.1f}" if adx_value is not None else "ADX unavailable")
             atr_text=(f"ATR(14) {atr_pct:.2f}% of price" if atr_pct is not None else "ATR unavailable")
+            regime_text=(f"{regime['label']}; volatility ratio {regime['vol_ratio']:.2f}x; {regime['direction']}" if regime.get("vol_ratio") is not None else "regime unavailable")
+            structure_text=(f"{structure['direction']}; {structure['strength_label']}" + (f" (ADX {structure['adx']:.1f})" if structure.get("adx") is not None else ""))
             if rs is None:
                 stats["insufficient_history"]+=1; continue
             strict_momentum = (rr is not None and 52<=rr<=68 and 0<=br<=1.2 and vr>=1.3 and rs>=1.5 and close_location>=.65)
@@ -418,7 +478,7 @@ def scan():
                 stats["stop_risk"]+=1; continue
             entry_ref,target=levels["entry_reference"],levels["target"]
             tier = "CONFIRMED TECHNICAL SCREEN" if is_confirmed else "EARLY WATCHLIST — RELAXED FILTERS"
-            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}; {bb_text}\nStrategy-family diagnostics (paper research only): {strategy_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
+            msg=(f"⚠️ {tier} — NOT a buy signal\nPair: {s}\nLast price: {p:.8g} USDT; ask-side entry reference: {entry_ref:.8g} USDT\nRSI: {rr:.1f}; volume: {vr:.2f}x; breakout: {br:.2f}%; relative strength vs BTC: {rs:+.2f} pp\nMarket regime (diagnostic only): {regime_text}; trend structure: {structure_text}\nExtra indicators (informational, not proven filters): {adx_text}; {macd_text}; {atr_text}; {bb_text}\nStrategy-family diagnostics (paper research only): {strategy_text}\nTrend checks: 1h={'pass' if trend_1h else 'fail'}, 4h={'pass' if trend_4h else 'partial/fail'}, daily={'pass' if trend_1d else 'fail'}\nIllustrative invalidation: {stop:.8g}; 2R target from ask reference: {target:.8g}\n24h quote volume: {q:,.0f} USDT; spread: {book["spread_pct"]:.3f}%\nTechnical-only; news, token unlocks, security and regulatory risks are not checked. Fees/slippage change results. No profit/probability guaranteed. No orders placed.")
             stats["qualified"]+=1
             # Log every qualifying technical setup, including BTC-gated watch-only
             # candidates, so evaluation is not conditioned on alert delivery.
