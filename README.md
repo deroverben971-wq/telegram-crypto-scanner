@@ -57,3 +57,16 @@ python -m unittest discover -s tests -v
 python scanner.py --test-telegram
 python scanner.py
 ```
+
+## Stock-market expansion — staged, paper-research-only
+
+The stock extension is being introduced in stages and does **not** place orders.
+The initial module (`stock_research.py`) only evaluates supplied daily OHLCV bars;
+it does not claim to scan the complete US or Philippine exchanges yet.
+
+- A provider adapter must be selected and tested separately for US-listed stocks/ETFs and PSE-listed instruments. Do not assume a free endpoint covers both exchanges, offers complete history, or permits automated redistribution.
+- Daily-bar screening is intentionally conservative: at least 220 chronological bars, price above the 20-day EMA, EMA20 > EMA50, EMA50 > EMA200, breakout no more than 2% above the prior 20-day high, and at least 1.2x prior-19-day average volume. Passing this screen is a research candidate, not a prediction or trade instruction.
+- Provider integration must validate split adjustments, timestamps, stale/missing bars, ticker mapping, delisted-symbol survivorship bias, exchange holidays, and rate limits. PSE liquidity needs separate handling for spread, turnover, board lots, and infrequent trading.
+- Alpha Vantage's free allowance has historically been limited (commonly 25 requests/day); verify the current plan and endpoint terms before choosing it. A broad universe cannot be reliably scanned by making one request per ticker on a low-quota plan. PSE data may require a licensed provider or subscription.
+- Until both market data sources pass validation, no stock market should be reported as fully scanned. No stock alerts are wired into the live Telegram workflow yet; this prevents incomplete coverage from being mistaken for a full-market scan.
+- Keep all outputs observational and paper-only. Historical screening alone is not evidence of an edge; evaluate chronological holdouts and forward paper marks after provider integration.
