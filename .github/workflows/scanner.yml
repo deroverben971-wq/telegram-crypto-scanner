@@ -38,8 +38,12 @@ jobs:
         shell: bash
         run: |
           if git fetch origin paper-state:refs/remotes/origin/paper-state 2>/dev/null; then
-            git show origin/paper-state:.paper_state.json > .paper_state.json 2>/dev/null || true
-            git show origin/paper-state:.state.json > .state.json 2>/dev/null || true
+            if git cat-file -e origin/paper-state:.paper_state.json 2>/dev/null; then
+              git show origin/paper-state:.paper_state.json > .paper_state.json
+            fi
+            if git cat-file -e origin/paper-state:.state.json 2>/dev/null; then
+              git show origin/paper-state:.state.json > .state.json
+            fi
           else
             echo "No durable state branch yet; starting initial ledger."
           fi
@@ -67,11 +71,13 @@ jobs:
           mkdir -p /tmp/scanner-state
           cp .paper_state.json /tmp/scanner-state/ 2>/dev/null || true
           cp .state.json /tmp/scanner-state/ 2>/dev/null || true
-          git switch --orphan paper-state
+          git switch --orphan paper-state-new
+          git branch -M paper-state
           git rm -rf . >/dev/null 2>&1 || true
           cp /tmp/scanner-state/.paper_state.json .paper_state.json 2>/dev/null || true
           cp /tmp/scanner-state/.state.json .state.json 2>/dev/null || true
-          git add .paper_state.json .state.json 2>/dev/null || true
+          if [ -f .paper_state.json ]; then git add .paper_state.json; fi
+          if [ -f .state.json ]; then git add .state.json; fi
           if git diff --cached --quiet; then
             echo "No state files changed; nothing to persist."
             exit 0
