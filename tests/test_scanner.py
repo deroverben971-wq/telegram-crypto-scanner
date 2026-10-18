@@ -164,6 +164,27 @@ class ForwardPaperTrackingTests(unittest.TestCase):
         self.assertTrue(mark["missed"])
         self.assertNotIn("net_return_pct", mark)
 
+    def test_paper_signal_stores_research_tier(self):
+        scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1, tier="relaxed_watch")
+        self.assertEqual(self.state["signals"][0]["tier"], "relaxed_watch")
+
+    def test_summary_reports_horizons_and_excludes_missed_marks(self):
+        self.state["completed"] = [{
+            "symbol": "ETHUSDT",
+            "marks": {
+                "1h": {"missed": False, "net_return_pct": 1.0},
+                "4h": {"missed": False, "net_return_pct": -0.5},
+                "24h": {"missed": True, "reason": "no quote"},
+                "72h": {"missed": False, "net_return_pct": 2.0},
+            }
+        }]
+        report = scanner.paper_performance_summary(self.state)
+        self.assertIn("1h: n=1", report)
+        self.assertIn("4h: n=1", report)
+        self.assertIn("24h: no valid observations yet; missed=1", report)
+        self.assertIn("72h: n=1", report)
+        self.assertIn("not verified fills", report)
+
     def test_completed_only_after_all_horizons_observed(self):
         scanner.record_paper_signal(self.state, "ETHUSDT", 1_000_000, 100, 98, 104, 0.1)
         scanner.update_paper_marks(self.state, 1_000_000 + 72*3_600_000,
