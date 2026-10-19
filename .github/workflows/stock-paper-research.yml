@@ -1,12 +1,16 @@
-name: Stock paper research scan
+name: Free stock paper research scan
 on:
   workflow_dispatch:
     inputs:
       symbols:
-        description: "Comma-separated supported US symbols (max 20; daily adjusted premium API required)"
+        description: "Comma-separated Yahoo Finance tickers (US: AAPL; Philippines: AC.PS); max 50"
         required: false
         type: string
-        default: "AAPL,MSFT,NVDA,AMZN,GOOGL,SPY,QQQ"
+        default: "AAPL,MSFT,NVDA,AMZN,GOOGL,META,AVGO,AMD,TSLA,COST,LLY,JPM,PLTR,ORCL,CRM,SPY,QQQ,DIA,IWM,XLK,AC.PS,BDO.PS, BPI.PS, JFC.PS, SM.PS, SMPH.PS, ALI.PS, TEL.PS, MER.PS, URC.PS"
+  schedule:
+    # Daily-bar research runs twice on weekdays. Provider/runner delays are possible.
+    - cron: "30 8 * * 1-5"
+    - cron: "30 22 * * 1-5"
 permissions:
   contents: read
 concurrency:
@@ -15,7 +19,7 @@ concurrency:
 jobs:
   scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -25,16 +29,17 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Unit tests
         run: python -m unittest discover -s tests -v
-      - name: Run US stock paper screen
+      - name: Run free stock paper screen
         env:
-          ALPHAVANTAGE_API_KEY: ${{ secrets.ALPHAVANTAGE_API_KEY }}
-          STOCK_SYMBOLS: ${{ inputs.symbols }}
+          STOCK_SYMBOLS: ${{ inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,GOOGL,META,AVGO,AMD,TSLA,COST,LLY,JPM,PLTR,ORCL,CRM,SPY,QQQ,DIA,IWM,XLK,AC.PS,BDO.PS,BPI.PS,JFC.PS,SM.PS,SMPH.PS,ALI.PS,TEL.PS,MER.PS,URC.PS' }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python stock_scan.py
       - name: Upload research results
         if: always() && hashFiles('stock_research_results.json') != ''
         uses: actions/upload-artifact@v4
         with:
-          name: stock-paper-research-results
+          name: free-stock-paper-research-results
           path: stock_research_results.json
           if-no-files-found: warn
           retention-days: 30
