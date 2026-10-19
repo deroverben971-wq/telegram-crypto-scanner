@@ -2,6 +2,7 @@
 import json
 import os
 import sys
+import requests
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -13,8 +14,8 @@ OUT = Path("stock_research_results.json")
 
 def main():
     symbols = [s.strip().upper() for s in os.getenv("STOCK_SYMBOLS", "AAPL,MSFT,NVDA,AMZN,GOOGL,SPY,QQQ").split(",") if s.strip()]
-    if len(symbols) > 20:
-        print("Refusing to scan more than 20 symbols per run to limit API usage.")
+    if len(symbols) > 50:
+        print("Refusing to scan more than 50 symbols per run to limit free-provider load.")
         return 2
     symbols = list(dict.fromkeys(symbols))
     results = []
@@ -36,7 +37,7 @@ def main():
     report = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "PAPER RESEARCH ONLY — no orders placed",
-        "provider": "Alpha Vantage TIME_SERIES_DAILY_ADJUSTED",
+        "provider": "Yahoo Finance public chart endpoint (unofficial; no API key)",
         "symbols_requested": symbols,
         "results": results,
         "ranked_candidates": ranked[:5],
@@ -54,9 +55,37 @@ def main():
     else:
         print("No valid stock results to rank; check provider access and data quality.")
     print(f"Results written to {OUT}; no trades or Telegram alerts are sent by this prototype.")
-    if not os.getenv("ALPHAVANTAGE_API_KEY", "").strip():
-        print("Set repository secret ALPHAVANTAGE_API_KEY before running.")
-        return 2
+    # Optional Telegram summary; the scan still produces an artifact if Telegram is unset.
+    token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
+    chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
+    if token and chat_id:
+        lines = [
+            "📊 FREE STOCK SCAN — PAPER RESEARCH ONLY",
+            f"Scanned: {len(symbols)} symbols | Strict: {report['qualified_count']} | Watchlist: {report['watchlist_count']}",
+            "No orders placed. Scores are rule confluence, not win probabilities.",
+        ]
+        if ranked:
+            lines.append("Top research candidates:")
+            for item in ranked[:5]:
+                missing = ", ".join(item.get("missing_confirmations", [])) or "none"
+                lines.append(f"• {item['symbol']}: {item.get('status')} — {item.get('score', 0)}/100; missing: {missing}")
+        else:
+            lines.append("No valid candidates ranked. Check provider errors/artifact.")
+        lines.append("Data source is an unofficial free endpoint; coverage and freshness can vary.")
+        try:
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/sendMessage",
+                json={"chat_id": chat_id, "text": "\n".join(lines), "disable_web_page_preview": True},
+                timeout=(4, 10),
+            )
+            response.raise_for_status()
+            if not response.json().get("ok"):
+                raise ValueError("Telegram API returned ok=false")
+            print("Telegram stock summary sent.")
+        except (requests.RequestException, ValueError) as exc:
+            print(f"Telegram notification failed ({type(exc).__name__}); artifact still contains results.")
+    else:
+        print("Telegram secrets not configured; results remain available as workflow artifact.")
     return 0
 
 
