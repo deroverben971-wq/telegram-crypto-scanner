@@ -3,6 +3,9 @@ on:
   push:
     paths:
       - "scanner.py"
+      - "stock_scan.py"
+      - "stock_provider.py"
+      - "stock_research.py"
       - "backtest.py"
       - "tests/**"
       - "requirements.txt"
