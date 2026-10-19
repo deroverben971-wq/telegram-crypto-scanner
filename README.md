@@ -61,22 +61,22 @@ python scanner.py
 
 ## Stock-market expansion — staged, paper-research-only
 
-The stock extension is being introduced in stages and does **not** place orders.
+The stock extension is paper-research-only and does **not** place orders.
 The initial module (`stock_research.py`) only evaluates supplied daily OHLCV bars;
 it does not claim to scan the complete US or Philippine exchanges yet.
 
 - A provider adapter must be selected and tested separately for US-listed stocks/ETFs and PSE-listed instruments. Do not assume a free endpoint covers both exchanges, offers complete history, or permits automated redistribution.
 - Daily-bar screening now returns a transparent 0–100 rule-confluence score. All five checks passing is a `STRICT_RESEARCH_CANDIDATE`; 3–4 checks passing is a `WATCHLIST_CANDIDATE` with missing confirmations shown; fewer than 3 checks is not qualified. The checks are price above EMA20, EMA20 > EMA50, EMA50 > EMA200, breakout 0–2% above the prior 20-day high, and volume at least 1.2x the prior-19-day average. Scores are not win probabilities. The report ranks the top five valid candidates while keeping strict and watchlist tiers separate.
 - Provider integration must validate split adjustments, timestamps, stale/missing bars, ticker mapping, delisted-symbol survivorship bias, exchange holidays, and rate limits. PSE liquidity needs separate handling for spread, turnover, board lots, and infrequent trading.
-- Alpha Vantage's free allowance has historically been limited (commonly 25 requests/day); verify the current plan and endpoint terms before choosing it. A broad universe cannot be reliably scanned by making one request per ticker on a low-quota plan. PSE data may require a licensed provider or subscription.
+- The stock prototype now uses Yahoo Finance's public chart endpoint without an API key. This endpoint is unofficial, can change or throttle requests, and is not an exchange-licensed feed or guaranteed SLA. It does not guarantee complete PSE coverage; Yahoo-listed Philippine tickers commonly use the `.PS` suffix (for example, `AC.PS`), but each symbol must be verified.
 - Until both market data sources pass validation, no stock market should be reported as fully scanned. No stock alerts are wired into the live Telegram workflow yet; this prevents incomplete coverage from being mistaken for a full-market scan.
 - Keep all outputs observational and paper-only. Historical screening alone is not evidence of an edge; evaluate chronological holdouts and forward paper marks after provider integration.
 
 
 ## Manual US stock research prototype (not part of the crypto alert loop)
 
-- Open **Actions → Stock paper research scan → Run workflow** to run a manually requested US daily-bar screen. It accepts up to 20 comma-separated symbols and uploads `stock_research_results.json` as an artifact.
-- It uses `stock_provider.py` and Alpha Vantage `TIME_SERIES_DAILY_ADJUSTED`, which Alpha Vantage documents as a **premium** endpoint. The workflow requires an `ALPHAVANTAGE_API_KEY` repository secret with the necessary entitlement. A free key should not be assumed to work for this endpoint. Check the provider's current plans and terms before paying.
+- Open **Actions → Free stock paper research scan → Run workflow** to scan a custom list of up to 50 comma-separated Yahoo Finance symbols and upload `stock_research_results.json` as an artifact. It also runs on weekday schedules, but scheduled execution may be delayed.
+- It uses `stock_provider.py` and Yahoo Finance's public chart endpoint; no stock-data API key is required. The workflow runs on weekday schedules and can send a Telegram summary using the same `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` secrets as the crypto scanner. It produces an artifact even if Telegram is not configured. The default watchlist mixes US stocks/ETFs and selected Yahoo-listed Philippine tickers; it is not a full-market scan.
 - The default symbol list is a small smoke-test universe, not a complete NYSE/Nasdaq universe. Each symbol is requested separately, so 7 symbols means at least 7 API requests. The scan is manual-only and sends no Telegram stock alerts.
 - This prototype is **US only**. It does not scan the Philippine Stock Exchange. PSE data requires a verified, appropriately licensed data source and coverage testing; do not treat a missing PSE integration as a scan with zero candidates.
 - The provider adapter fails closed on missing keys, rate-limit/entitlement messages, malformed data, and fewer than 220 valid daily bars. Price adjustment and volume conventions still need independent validation before interpreting performance.
