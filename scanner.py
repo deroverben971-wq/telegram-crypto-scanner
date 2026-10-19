@@ -430,7 +430,7 @@ def scan():
     try:state=json.loads(STATE.read_text())
     except (OSError,ValueError):state={"alerts":{}}
     if not isinstance(state,dict) or not isinstance(state.get("alerts"),dict):state={"alerts":{}}
-    now=time.time(); count=0; watch_candidates=[]
+    now=time.time(); count=0; watch_candidates=[]; discovery_candidates=[]
     # Forward paper validation: re-quote pending signal pairs and record marks
     # at 1h/4h/24h/72h horizons. This is observational, not actual execution.
     paper_state = load_paper_state()
@@ -464,8 +464,6 @@ def scan():
             # Relaxed tier is watch-only: still requires 1h strength and at least
             # a constructive 4h structure; it never bypasses liquidity/risk gates.
             watch_trend = trend_1h and (trend_4h or (b[-1]>ema(b,20) and ema(b,20)>=ema(b,50)))
-            if not strict_trend and not watch_trend:
-                stats["trend"]+=1; continue
             prior=h1[-21:-1]; rr=rsi(a); br=(a[-1]/max(x["high"] for x in prior)-1)*100; av=sum(x["volume"] for x in prior)/20; vr=h1[-1]["volume"]/av if av else 0; candle_range=h1[-1]["high"]-h1[-1]["low"]; close_location=(a[-1]-h1[-1]["low"])/candle_range if candle_range>0 else 0
             # Compare equal 24-hour windows using closed candles, not rolling ticker
             # percentages that can have slightly different observation timestamps.
@@ -499,8 +497,32 @@ def scan():
             strict_momentum = (rr is not None and 52<=rr<=68 and 0<=br<=1.2 and vr>=1.3 and rs>=1.5 and close_location>=.65)
             watch_momentum = (rr is not None and 45<=rr<=72 and -0.5<=br<=1.8 and vr>=1.0 and rs>=0 and close_location>=.50)
             is_confirmed = strict_trend and strict_momentum
+            discovery_checks = [
+                trend_1h, trend_4h, trend_1d,
+                rr is not None and 45 <= rr <= 72,
+                -0.5 <= br <= 1.8,
+                vr >= 1.0,
+                rs >= 0,
+                close_location >= .50,
+            ]
+            discovery_score = round(sum(discovery_checks) / len(discovery_checks) * 100)
+            discovery_missing = [label for label, ok in zip(
+                ("1h trend", "4h trend", "daily trend", "RSI range",
+                 "breakout not overextended", "volume expansion",
+                 "relative strength vs BTC", "strong candle close"),
+                discovery_checks
+            ) if not ok]
+            discovery_candidates.append((
+                discovery_score,
+                f"{s} | discovery score {discovery_score}/100 | price {p:.8g} USDT | "
+                f"RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | "
+                f"RS vs BTC {rs:+.2f} pp | missing: {', '.join(discovery_missing) if discovery_missing else 'none'}"
+            ))
+            if not strict_trend and not watch_trend:
+                stats["trend"]+=1
             if not is_confirmed and not (watch_trend and watch_momentum):
-                stats["momentum_breakout_volume_rs"]+=1; continue
+                stats["momentum_breakout_volume_rs"]+=1
+                continue
             ob=get("/api/v3/depth",{"symbol":s,"limit":100}); book=orderbook_metrics(ob)
             if book is None or book["spread_pct"]>.15 or min(book["bid_depth"],book["ask_depth"])<15000:
                 stats["orderbook_spread_depth"]+=1; continue
@@ -595,11 +617,18 @@ def scan():
             if not btc_regime_ok else
             "These candidates did not meet every strict confirmation condition. Watchlist only—not buy signals."
         )
+    elif discovery_candidates:
+        discovery_candidates.sort(key=lambda item: item[0], reverse=True)
+        candidates_text = "\\n".join(f"• {item[1]}" for item in discovery_candidates[:10])
+        if len(discovery_candidates) > 10:
+            candidates_text += f"\\n• ...and {len(discovery_candidates)-10} more"
+        watch_note = (
+            "No coin passed the relaxed technical watchlist filters. These are the highest-ranked "
+            "technical discovery candidates among symbols with valid candle history—not qualified setups, "
+            "recommendations, or buy signals. Order-book/risk checks may not have passed; verify news and token risks."
+        )
     else:
-        # Never fabricate a technically qualified watchlist candidate. To ensure
-        # the report still names something to keep an eye on, show the highest
-        # 24h-quote-volume non-BTC asset in the scanned universe as a MARKET
-        # MONITOR ONLY, explicitly stating that it failed/was not qualified.
+        # Only use a liquid market reference when data is too incomplete to calculate a technical rank.
         fallback = next((item for item in u if item[1] != "BTCUSDT"), None)
         if fallback:
             fq, fs, fch, fp = fallback
