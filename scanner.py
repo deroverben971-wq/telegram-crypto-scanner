@@ -607,25 +607,24 @@ def scan():
     detail = "\n".join(f"• {label}: {value}" for label, value in reasons)
 
     if watch_candidates:
+        # Rank all candidates internally, but show only the single highest-ranked one.
         watch_candidates.sort(key=lambda item: item[0], reverse=True)
-        candidates_text = "\n".join(f"• {item[1]}" for item in watch_candidates[:10])
-        if len(watch_candidates) > 10:
-            candidates_text += f"\n• ...and {len(watch_candidates)-10} more"
+        candidates_text = f"• {watch_candidates[0][1]}"
         watch_note = (
             f"{btc_regime_reason}\n"
-            "These are unconfirmed monitoring candidates—not buy signals. Wait for strict confirmation and check news/token risks."
+            "This is the highest-ranked unconfirmed monitoring candidate—not a buy signal. "
+            "Wait for strict confirmation and check news/token risks."
             if not btc_regime_ok else
-            "These candidates did not meet every strict confirmation condition. Watchlist only—not buy signals."
+            "This candidate did not meet every strict confirmation condition. Watchlist only—not a buy signal."
         )
     elif discovery_candidates:
+        # Use an actual newline when composing Telegram text; only display the top discovery candidate.
         discovery_candidates.sort(key=lambda item: item[0], reverse=True)
-        candidates_text = "\\n".join(f"• {item[1]}" for item in discovery_candidates[:10])
-        if len(discovery_candidates) > 10:
-            candidates_text += f"\\n• ...and {len(discovery_candidates)-10} more"
+        candidates_text = f"• {discovery_candidates[0][1]}"
         watch_note = (
-            "No coin passed the relaxed technical watchlist filters. These are the highest-ranked "
-            "technical discovery candidates among symbols with valid candle history—not qualified setups, "
-            "recommendations, or buy signals. Order-book/risk checks may not have passed; verify news and token risks."
+            "No coin passed the relaxed technical watchlist filters. This is the highest-ranked "
+            "technical discovery candidate among symbols with valid candle history—not a qualified setup, "
+            "recommendation, or buy signal. Order-book/risk checks may not have passed; verify news and token risks."
         )
     else:
         # Only use a liquid market reference when data is too incomplete to calculate a technical rank.
