@@ -1,7 +1,14 @@
 """No-key Yahoo Finance chart adapter for paper-research-only daily OHLCV.
 
-This uses an unofficial public endpoint: availability, coverage, and terms can
+Yahoo's chart endpoint is unofficial: availability, coverage, and terms can
 change without notice. It is not an exchange-licensed feed or guaranteed SLA.
+
+Important adjustment policy:
+- Use Yahoo's OHLC and close series on their common split-adjusted price basis.
+- Do NOT scale OHLC by adjusted-close/close: adjusted close can reflect dividends,
+  which creates synthetic intraday ranges and distorted breakout levels.
+- This intentionally does not model dividend-adjusted total returns. Research
+  consumers must treat corporate-action and total-return analysis as a limitation.
 """
 import math
 import time
@@ -18,12 +25,7 @@ class ProviderError(RuntimeError):
 
 
 def fetch_daily_bars(symbol, api_key=None, session=requests):
-    """Fetch up to five years of daily bars without a paid API key.
-
-    US tickers use their normal symbol (AAPL); Yahoo-listed Philippine tickers
-    commonly use the .PS suffix (for example, AC.PS). Coverage must be checked
-    per symbol; unsupported or stale tickers fail closed.
-    """
+    """Fetch up to five years of daily bars; fail closed on missing/stale data."""
     symbol = str(symbol).strip().upper()
     if not symbol or len(symbol) > 32 or any(c not in "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789.-_^=" for c in symbol):
         raise ProviderError("Invalid symbol; use a ticker such as AAPL or a Yahoo suffix such as AC.PS")
@@ -63,33 +65,22 @@ def fetch_daily_bars(symbol, api_key=None, session=requests):
     if not timestamps or not quote_sets or not isinstance(quote_sets[0], dict):
         raise ProviderError(f"Missing OHLCV series for {symbol}")
     q = quote_sets[0]
-    adj_sets = indicators.get("adjclose") or []
-    adj = adj_sets[0].get("adjclose", []) if adj_sets and isinstance(adj_sets[0], dict) else []
     fields = {key: q.get(key, []) for key in ("open", "high", "low", "close", "volume")}
     bars = []
     for i, stamp in enumerate(timestamps):
         try:
-            close = float(fields["close"][i])
-            adjusted_close = float(adj[i]) if i < len(adj) and adj[i] is not None else close
-            if not math.isfinite(close) or close <= 0 or not math.isfinite(adjusted_close) or adjusted_close <= 0:
+            o, h, low, close, volume = (float(fields[k][i]) for k in ("open", "high", "low", "close", "volume"))
+            if not all(math.isfinite(x) for x in (o, h, low, close, volume)):
                 continue
-            factor = adjusted_close / close
-            o, h, low = (float(fields[k][i]) * factor for k in ("open", "high", "low"))
-            c = adjusted_close
-            volume = float(fields["volume"][i])
-            if not all(math.isfinite(x) for x in (o, h, low, c, volume)):
-                continue
-            if min(o, h, low, c) <= 0 or volume < 0 or h < max(o, c, low) or low > min(o, c):
+            if min(o, h, low, close) <= 0 or volume < 0 or h < max(o, close, low) or low > min(o, close):
                 continue
             date = datetime.fromtimestamp(int(stamp), tz=timezone.utc).date().isoformat()
-            bars.append({"date": date, "open": o, "high": h, "low": low, "close": c, "volume": volume})
+            bars.append({"date": date, "open": o, "high": h, "low": low, "close": close, "volume": volume})
         except (IndexError, TypeError, ValueError, OverflowError, OSError):
             continue
     bars.sort(key=lambda row: row["date"])
     if len(bars) < 220:
         raise ProviderError(f"Only {len(bars)} valid daily bars returned for {symbol}; need at least 220")
-    # Fail closed for stale feeds; PSE/US holiday gaps are normal, but a bar
-    # older than 10 calendar days usually indicates unsupported/stale coverage.
     latest_date = datetime.strptime(bars[-1]["date"], "%Y-%m-%d").date()
     if (datetime.now(timezone.utc).date() - latest_date).days > 10:
         raise ProviderError(f"Latest bar for {symbol} is stale ({bars[-1]['date']})")
