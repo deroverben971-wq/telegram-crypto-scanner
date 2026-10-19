@@ -1,5 +1,4 @@
 import unittest
-from unittest.mock import Mock
 from stock_provider import ProviderError, fetch_daily_bars
 
 
@@ -24,7 +23,7 @@ class FakeSession:
 def make_payload(n=230):
     # 230 valid chronological daily candles, with adjusted close equal to close.
     import datetime
-    start = datetime.datetime(2025, 1, 1, tzinfo=datetime.timezone.utc)
+    start = datetime.datetime.now(datetime.timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0) - datetime.timedelta(days=n + 2)
     timestamps = [int((start + datetime.timedelta(days=i)).timestamp()) for i in range(n)]
     closes = [20.0 + i * 0.1 for i in range(n)]
     return {"chart": {"result": [{
