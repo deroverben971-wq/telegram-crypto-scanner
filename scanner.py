@@ -14,10 +14,13 @@ def load_paper_state():
     try:
         value = json.loads(PAPER_STATE.read_text(encoding="utf-8"))
         if isinstance(value, dict) and isinstance(value.get("signals"), list):
+            value.setdefault("completed", [])
+            value.setdefault("discovery_signals", [])
+            value.setdefault("discovery_completed", [])
             return value
     except (OSError, ValueError):
         pass
-    return {"signals": [], "completed": []}
+    return {"signals": [], "completed": [], "discovery_signals": [], "discovery_completed": []}
 
 def save_paper_state(state):
     """Atomic local write; workflow cache is best-effort persistence, not a database."""
@@ -44,6 +47,73 @@ def record_paper_signal(state, symbol, signal_close_ms, entry_ask, stop, target,
         return True
     except (TypeError, ValueError, OverflowError):
         return False
+
+def record_discovery_candidate(state, symbol, candle_key_ms, observed_ms, price, score):
+    """Record one discovery-only candidate per symbol and closed 1h candle."""
+    try:
+        price = float(price)
+        score = int(score)
+        if not symbol or candle_key_ms <= 0 or observed_ms <= 0 or not math.isfinite(price) or price <= 0 or not 0 <= score <= 100:
+            return False
+        key = f"{symbol}:{int(candle_key_ms)}"
+        rows = state.setdefault("discovery_signals", [])
+        done = state.setdefault("discovery_completed", [])
+        if any(x.get("key") == key for x in rows) or any(x.get("key") == key for x in done):
+            return False
+        rows.append({"key": key, "symbol": symbol, "candle_key_ms": int(candle_key_ms),
+                     "observed_ms": int(observed_ms), "entry_price": price, "discovery_score": score, "marks": {}})
+        return True
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def update_discovery_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.0005):
+    """Mark discovery candidates at fixed horizons using observed bid quotes."""
+    horizons = {"1h": 3600000, "4h": 4*3600000, "24h": 24*3600000, "72h": 72*3600000}
+    signals = state.setdefault("discovery_signals", [])
+    completed = state.setdefault("discovery_completed", [])
+    for signal in list(signals):
+        quote = quotes.get(signal.get("symbol"))
+        bid = None
+        if isinstance(quote, dict):
+            try:
+                candidate_bid = float(quote["bid"])
+                if math.isfinite(candidate_bid) and candidate_bid > 0:
+                    bid = candidate_bid
+            except (KeyError, TypeError, ValueError, OverflowError):
+                pass
+        for horizon, delta in horizons.items():
+            due = signal["observed_ms"] + delta
+            if now_ms < due or horizon in signal["marks"]:
+                continue
+            delay_ms = now_ms - due
+            if delay_ms > delta:
+                signal["marks"][horizon] = {"observed_ms": now_ms, "delay_ms": delay_ms, "missed": True}
+            elif bid is not None:
+                entry_cost = signal["entry_price"] * (1 + fee_rate + slippage_rate)
+                exit_proceeds = bid * (1 - fee_rate - slippage_rate)
+                signal["marks"][horizon] = {"observed_ms": now_ms, "delay_ms": delay_ms, "missed": False,
+                    "bid": bid, "net_return_pct": (exit_proceeds / entry_cost - 1) * 100}
+    state["discovery_signals"] = [s for s in signals if len(s.get("marks", {})) != len(horizons)]
+    completed.extend(s for s in signals if len(s.get("marks", {})) == len(horizons))
+
+
+def discovery_performance_summary(state):
+    signals = list(state.get("discovery_signals", [])) + list(state.get("discovery_completed", []))
+    lines = ["DISCOVERY PAPER TRACKING — candidates are not trade signals"]
+    lines.append(f"Discovery candidates tracked: {len(signals)} total; {len(state.get('discovery_signals', []))} in progress; {len(state.get('discovery_completed', []))} completed")
+    for horizon in ("1h", "4h", "24h", "72h"):
+        marks = [s.get("marks", {}).get(horizon, {}) for s in signals if horizon in s.get("marks", {})]
+        valid = [m for m in marks if not m.get("missed") and isinstance(m.get("net_return_pct"), (int, float)) and math.isfinite(m["net_return_pct"])]
+        missed = sum(1 for m in marks if m.get("missed"))
+        if valid:
+            wins = sum(m["net_return_pct"] > 0 for m in valid)
+            mean = sum(m["net_return_pct"] for m in valid) / len(valid)
+            lines.append(f"• {horizon}: n={len(valid)}, positive={wins}/{len(valid)} ({wins/len(valid)*100:.1f}%), mean net mark={mean:+.2f}%, missed={missed}")
+        else:
+            lines.append(f"• {horizon}: no valid observations yet; missed={missed}")
+    lines.append("Quote-based estimates with modeled costs; small samples are inconclusive.")
+    return chr(10).join(lines)
 
 def update_paper_marks(state, now_ms, quotes, fee_rate=0.001, slippage_rate=0.0005):
     """Mark matured horizons using observed bid quotes; not actual fills.
@@ -435,7 +505,10 @@ def scan():
     # at 1h/4h/24h/72h horizons. This is observational, not actual execution.
     paper_state = load_paper_state()
     paper_quotes = {}
-    pending_symbols = sorted({x.get("symbol") for x in paper_state["signals"] if x.get("symbol")})
+    pending_symbols = sorted(
+        {x.get("symbol") for x in paper_state["signals"] if x.get("symbol")} |
+        {x.get("symbol") for x in paper_state.get("discovery_signals", []) if x.get("symbol")}
+    )
     for paper_symbol in pending_symbols:
         try:
             book = orderbook_metrics(get("/api/v3/depth", {"symbol": paper_symbol, "limit": 100}))
@@ -443,7 +516,9 @@ def scan():
                 paper_quotes[paper_symbol] = {"bid": book["bid"], "ask": book["ask"]}
         except (RuntimeError, ValueError, requests.RequestException, KeyError, TypeError):
             pass
-    update_paper_marks(paper_state, int(time.time()*1000), paper_quotes)
+    paper_now_ms = int(time.time()*1000)
+    update_paper_marks(paper_state, paper_now_ms, paper_quotes)
+    update_discovery_marks(paper_state, paper_now_ms, paper_quotes)
     save_paper_state(paper_state)
     stats={"considered":0,"cooldown":0,"insufficient_history":0,"trend":0,"momentum_breakout_volume_rs":0,"orderbook_spread_depth":0,"stop_risk":0,"api_errors":0,"qualified":0,"watch_only":0,"alert_cap_suppressed":0}
     for q,s,ch,p in u:
@@ -512,9 +587,10 @@ def scan():
                  "relative strength vs BTC", "strong candle close"),
                 discovery_checks
             ) if not ok]
+            record_discovery_candidate(paper_state, s, h1[-1]["time"], int(now*1000), p, discovery_score)
             discovery_candidates.append((
                 discovery_score,
-                f"{s} | discovery score {discovery_score}/100 | price {p:.8g} USDT | "
+                f"{s} | discovery score {discovery_score}/100 ({sum(discovery_checks)}/8 checks) | price {p:.8g} USDT | "
                 f"RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | "
                 f"RS vs BTC {rs:+.2f} pp | missing: {', '.join(discovery_missing) if discovery_missing else 'none'}"
             ))
@@ -585,6 +661,7 @@ def scan():
                 stats["watch_only"]+=1
         except (RuntimeError,ValueError,requests.RequestException,KeyError,TypeError,ZeroDivisionError) as e:
             stats["api_errors"]+=1; print(f"Skip {s}: {type(e).__name__}")
+    save_paper_state(paper_state)
     print("\nScan diagnostics:")
     for key,value in stats.items(): print(f"  {key.replace(chr(95), chr(32))}: {value}")
     if count:
@@ -649,7 +726,8 @@ def scan():
         f"{summary}\n\n"
         f"📊 SCAN DIAGNOSTICS\n{detail}\n\n"
         f"👀 WATCHLIST / MARKET MONITOR\n{candidates_text}\n\n"
-        f"{watch_note}\n\n{paper_performance_summary(paper_state)}\n\n{note}"
+        f"{watch_note}\n\n{paper_performance_summary(paper_state)}\n\n"
+        f"{discovery_performance_summary(paper_state)}\n\n{note}"
     )
     print(report)
     send(report)
