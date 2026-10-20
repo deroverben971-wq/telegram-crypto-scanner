@@ -28,10 +28,12 @@ class CooldownStateTests(unittest.TestCase):
 
 class LiveUniverseTests(unittest.TestCase):
     def test_excludes_stable_tokenized_and_leveraged_products(self):
-        valid = {"BTCUSDT", "ETHUSDT", "USDCUSDT", "NVDABUSDT",
+        valid = {"BTCUSDT", "ETHUSDT", "USDCUSDT", "XUSDUSDT", "USDSUSDT", "NVDABUSDT",
                  "BTCUPUSDT", "ETH2LUSDT", "XAUTUSDT", "ETHBTC"}
         self.assertTrue(scanner.eligible_live_symbol("BTCUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("USDCUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("XUSDUSDT", valid))
+        self.assertFalse(scanner.eligible_live_symbol("USDSUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("NVDABUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("BTCUPUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("ETH2LUSDT", valid))
@@ -123,6 +125,35 @@ class RelativeStrengthTests(unittest.TestCase):
     def test_orderbook_metrics_ignores_nonfinite_levels(self):
         self.assertIsNone(scanner.orderbook_metrics({"bids":[["NaN","2"]],"asks":[["100","2"]]}))
 
+
+
+class DiscoveryPaperTrackingTests(unittest.TestCase):
+    def setUp(self):
+        self.state = {"signals": [], "completed": []}
+
+    def test_records_one_discovery_per_symbol_and_candle(self):
+        args = (self.state, "ETHUSDT", 3_600_000, 4_000_000, 100.0, 88)
+        self.assertTrue(scanner.record_discovery_candidate(*args))
+        self.assertFalse(scanner.record_discovery_candidate(*args))
+        self.assertEqual(len(self.state["discovery_signals"]), 1)
+
+    def test_rejects_invalid_discovery_price_or_score(self):
+        self.assertFalse(scanner.record_discovery_candidate(self.state, "ETHUSDT", 3_600_000, 4_000_000, 0, 88))
+        self.assertFalse(scanner.record_discovery_candidate(self.state, "ETHUSDT", 3_600_000, 4_000_000, 100, 101))
+        self.assertEqual(self.state.get("discovery_signals", []), [])
+
+    def test_marks_discovery_candidate_net_of_modeled_costs(self):
+        scanner.record_discovery_candidate(self.state, "ETHUSDT", 3_600_000, 4_000_000, 100.0, 88)
+        scanner.update_discovery_marks(self.state, 4_000_000 + 3_600_000,
+                                       {"ETHUSDT": {"bid": 102.0, "ask": 102.1}})
+        mark = self.state["discovery_signals"][0]["marks"]["1h"]
+        self.assertFalse(mark["missed"])
+        self.assertGreater(mark["net_return_pct"], 0)
+
+    def test_discovery_summary_labels_candidates_not_signals(self):
+        report = scanner.discovery_performance_summary(self.state)
+        self.assertIn("candidates are not trade signals", report)
+        self.assertIn("Discovery candidates tracked: 0 total", report)
 
 class ForwardPaperTrackingTests(unittest.TestCase):
     def setUp(self):
