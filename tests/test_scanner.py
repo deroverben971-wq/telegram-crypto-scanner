@@ -28,10 +28,15 @@ class CooldownStateTests(unittest.TestCase):
 
 class LiveUniverseTests(unittest.TestCase):
     def test_excludes_stable_tokenized_and_leveraged_products(self):
-        valid = {"BTCUSDT", "ETHUSDT", "USDCUSDT", "NVDABUSDT",
-                 "BTCUPUSDT", "ETH2LUSDT", "XAUTUSDT", "ETHBTC"}
+        valid = {"BTCUSDT", "ETHUSDT", "USDCUSDT", "XUSDUSDT", "USDSUSDT",
+                 "USDDUSDT", "USDJUSDT", "USDGUSDT", "USDQUSDT", "USDYUSDT",
+                 "NVDABUSDT", "BTCUPUSDT", "ETH2LUSDT", "XAUTUSDT", "PAXGUSDT", "ETHBTC"}
         self.assertTrue(scanner.eligible_live_symbol("BTCUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("USDCUSDT", valid))
+        for stable in ("XUSDUSDT", "USDSUSDT", "USDDUSDT", "USDJUSDT",
+                       "USDGUSDT", "USDQUSDT", "USDYUSDT"):
+            self.assertFalse(scanner.eligible_live_symbol(stable, valid))
+        self.assertFalse(scanner.eligible_live_symbol("PAXGUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("NVDABUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("BTCUPUSDT", valid))
         self.assertFalse(scanner.eligible_live_symbol("ETH2LUSDT", valid))
