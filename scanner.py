@@ -308,7 +308,8 @@ def eligible_live_symbol(symbol, valid_symbols, excluded_bases=None):
     """Keep the live scanner universe aligned with the backtest's spot-crypto universe."""
     excluded = set(excluded_bases or ()) | {
         "USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "BUSD",
-        "USD1", "RLUSD", "EUR", "TRY", "BRL", "USTC", "XAUT",
+        "USD1", "RLUSD", "XUSD", "USDS", "USDD", "USDJ", "USDG", "USDQ", "USDY",
+        "EURS", "AEUR", "EURI", "XSGD", "EUR", "TRY", "BRL", "USTC", "XAUT", "PAXG",
         "NVDAB", "TSLAB", "MSTRB", "CRCLB", "SNDKB", "SOXLB",
     }
     if not symbol.endswith("USDT") or symbol not in valid_symbols:
