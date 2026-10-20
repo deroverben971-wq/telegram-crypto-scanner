@@ -378,7 +378,8 @@ def eligible_live_symbol(symbol, valid_symbols, excluded_bases=None):
     """Keep the live scanner universe aligned with the backtest's spot-crypto universe."""
     excluded = set(excluded_bases or ()) | {
         "USDC", "FDUSD", "TUSD", "USDP", "DAI", "USDE", "BUSD",
-        "USD1", "RLUSD", "EUR", "TRY", "BRL", "USTC", "XAUT",
+        "USD1", "RLUSD", "XUSD", "USDS", "USDD", "USDJ", "USDG", "USDQ", "USDY",
+        "EURS", "AEUR", "EURI", "XSGD", "EUR", "TRY", "BRL", "USTC", "XAUT", "PAXG",
         "NVDAB", "TSLAB", "MSTRB", "CRCLB", "SNDKB", "SOXLB",
     }
     if not symbol.endswith("USDT") or symbol not in valid_symbols:
@@ -572,6 +573,8 @@ def scan():
             strict_momentum = (rr is not None and 52<=rr<=68 and 0<=br<=1.2 and vr>=1.3 and rs>=1.5 and close_location>=.65)
             watch_momentum = (rr is not None and 45<=rr<=72 and -0.5<=br<=1.8 and vr>=1.0 and rs>=0 and close_location>=.50)
             is_confirmed = strict_trend and strict_momentum
+            # Discovery is only a ranking aid. Require measurable hourly volatility so
+            # near-flat assets do not top a momentum scanner on volume alone.
             discovery_checks = [
                 trend_1h, trend_4h, trend_1d,
                 rr is not None and 45 <= rr <= 72,
@@ -579,19 +582,21 @@ def scan():
                 vr >= 1.0,
                 rs >= 0,
                 close_location >= .50,
+                atr_pct is not None and atr_pct >= 0.25,
             ]
             discovery_score = round(sum(discovery_checks) / len(discovery_checks) * 100)
             discovery_missing = [label for label, ok in zip(
                 ("1h trend", "4h trend", "daily trend", "RSI range",
                  "breakout not overextended", "volume expansion",
-                 "relative strength vs BTC", "strong candle close"),
+                 "relative strength vs BTC", "strong candle close",
+                 "minimum hourly volatility"),
                 discovery_checks
             ) if not ok]
             record_discovery_candidate(paper_state, s, h1[-1]["time"], int(now*1000), p, discovery_score)
             discovery_candidates.append((
-                discovery_score,
-                f"{s} | discovery score {discovery_score}/100 ({sum(discovery_checks)}/8 checks) | price {p:.8g} USDT | "
-                f"RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | "
+                discovery_score, rs, vr, br,
+                f"{s} | discovery score {discovery_score}/100 ({sum(discovery_checks)}/9 checks) | price {p:.8g} USDT | "
+                f"RSI {rr:.1f} | volume {vr:.2f}x | breakout {br:.2f}% | ATR {atr_pct:.2f}% | "
                 f"RS vs BTC {rs:+.2f} pp | missing: {', '.join(discovery_missing) if discovery_missing else 'none'}"
             ))
             if not strict_trend and not watch_trend:
@@ -696,8 +701,10 @@ def scan():
         )
     elif discovery_candidates:
         # Use an actual newline when composing Telegram text; only display the top discovery candidate.
-        discovery_candidates.sort(key=lambda item: item[0], reverse=True)
-        candidates_text = f"• {discovery_candidates[0][1]}"
+        # Rank by checklist score, then relative strength, volume expansion, and breakout.
+        # This prevents arbitrary quote-volume ordering from deciding equal-score ties.
+        discovery_candidates.sort(key=lambda item: (item[0], item[1], item[2], item[3]), reverse=True)
+        candidates_text = f"• {discovery_candidates[0][4]}"
         watch_note = (
             "No coin passed the relaxed technical watchlist filters. This is the highest-ranked "
             "technical discovery candidate among symbols with valid candle history—not a qualified setup, "
