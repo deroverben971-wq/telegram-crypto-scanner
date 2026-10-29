@@ -10,6 +10,16 @@ from stock_provider import ProviderError, fetch_daily_bars
 from stock_research import evaluate_daily_bars
 
 OUT = Path("stock_research_results.json")
+QUALIFIED_STATUSES = {"STRICT_RESEARCH_CANDIDATE", "WATCHLIST_CANDIDATE"}
+
+
+def rank_results(results):
+    """Rank only research candidates; never promote failed setups into candidates."""
+    return sorted(
+        (x for x in results if x.get("status") in QUALIFIED_STATUSES),
+        key=lambda x: (x.get("checks_passed", 0), x.get("volume_ratio") or 0),
+        reverse=True,
+    )
 
 
 def main():
@@ -29,11 +39,8 @@ def main():
             results.append({"symbol": symbol, "status": "DATA_UNAVAILABLE", "reason": str(exc)})
             print(f"{symbol}: DATA_UNAVAILABLE — {exc}")
 
-    ranked = sorted(
-        (x for x in results if x.get("status") in {"STRICT_RESEARCH_CANDIDATE", "WATCHLIST_CANDIDATE", "NO_QUALIFIED_SETUP"}),
-        key=lambda x: (x.get("checks_passed", 0), x.get("volume_ratio") or 0),
-        reverse=True,
-    )
+    ranked = rank_results(results)
+    unqualified = [x for x in results if x.get("status") == "NO_QUALIFIED_SETUP"]
     report = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "mode": "PAPER RESEARCH ONLY — no orders placed",
@@ -41,21 +48,22 @@ def main():
         "symbols_requested": symbols,
         "results": results,
         "ranked_candidates": ranked[:5],
+        "unqualified_diagnostics": unqualified,
         "qualified_count": sum(x.get("status") == "STRICT_RESEARCH_CANDIDATE" for x in results),
         "watchlist_count": sum(x.get("status") == "WATCHLIST_CANDIDATE" for x in results),
-        "warning": "A ranked candidate is not a prediction. Provider coverage, entitlement, adjustments, liquidity, costs, and corporate actions require validation.",
+        "unqualified_count": len(unqualified),
+        "warning": "A ranked candidate is not a prediction. Provider coverage, freshness, liquidity, costs, corporate actions, and execution require validation.",
     }
     OUT.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
-    print(f"\nStrict candidates: {report['qualified_count']}; watchlist candidates: {report['watchlist_count']}")
+    print(f"\nStrict candidates: {report['qualified_count']}; watchlist candidates: {report['watchlist_count']}; no-setup diagnostics: {report['unqualified_count']}")
     if ranked:
         print("Top research candidates (not trade instructions):")
         for item in ranked[:5]:
             missing = ", ".join(item.get("missing_confirmations", [])) or "none"
             print(f"  {item['symbol']}: {item['status']} | {item.get('score', 0)}/100 | missing: {missing}")
     else:
-        print("No valid stock results to rank; check provider access and data quality.")
-    print(f"Results written to {OUT}; no trades or Telegram alerts are sent by this prototype.")
-    # Optional Telegram summary; the scan still produces an artifact if Telegram is unset.
+        print("No qualified research/watchlist candidates. NO TRADE / NO QUALIFIED SETUP.")
+    print(f"Results written to {OUT}; no trades are placed.")
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
     if token and chat_id:
@@ -70,7 +78,7 @@ def main():
                 missing = ", ".join(item.get("missing_confirmations", [])) or "none"
                 lines.append(f"• {item['symbol']}: {item.get('status')} — {item.get('score', 0)}/100; missing: {missing}")
         else:
-            lines.append("No valid candidates ranked. Check provider errors/artifact.")
+            lines.append("No qualified research/watchlist candidates. See workflow artifact for diagnostics.")
         lines.append("Data source is an unofficial free endpoint; coverage and freshness can vary.")
         try:
             response = requests.post(
